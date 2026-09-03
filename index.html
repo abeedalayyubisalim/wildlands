@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WILDLANDS: LAST SIGNAL (Open World Dev)</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        #ui-layer {
+            position: absolute; top: 10px; left: 10px; color: #00ff00; 
+            background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
+            pointer-events: none; /* Agar klik tembus ke game */
+        }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+            background: rgba(255, 255, 255, 0.8); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+        }
+        #blocker {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); color: white; display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 999; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay -->
+    <div id="ui-layer">
+        <h3>WILDLANDS: LAST SIGNAL</h3>
+        <p>Health: 100 | Hunger: 100 | Thirst: 100</p>
+        <p>Posisi: <span id="coords">0, 0, 0</span></p>
+    </div>
+    <div id="crosshair"></div>
+
+    <!-- Layar Klik untuk Mulai (Pointer Lock) -->
+    <div id="blocker">
+        <h1>KLIK DI SINI UNTUK MULAI</h1>
+        <p>Gerak: W, A, S, D | Lompat: SPASI | Lihat: Mouse</p>
+        <p>Tekan ESC untuk keluar dari mode kontrol.</p>
+    </div>
+
+    <!-- Import Three.js via CDN (ES Modules) -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+
+        // 1. SETUP DASAR
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87CEEB); // Langit biru
+        scene.fog = new THREE.Fog(0x87CEEB, 10, 100); // Kabut untuk kesan luas & optimasi
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.y = 2; // Tinggi mata pemain
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // 2. PENCAHAYAAN
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(50, 100, 50);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
+
+        // 3. TERRAIN (LANTAI DASAR)
+        // Di masa depan, kita ganti ini dengan Heightmap / Procedural Noise
+        const groundGeometry = new THREE.PlaneGeometry(200, 200, 50, 50);
+        
+        // Membuat sedikit variasi tinggi agar tidak datar sempurna (simulasi open world)
+        const posAttribute = groundGeometry.attributes.position;
+        for (let i = 0; i < posAttribute.count; i++) {
+            const x = posAttribute.getX(i);
+            const y = posAttribute.getY(i);
+            // Simple wave pattern untuk simulasi bukit
+            const z = Math.sin(x / 10) * 2 + Math.cos(y / 10) * 2; 
+            posAttribute.setZ(i, z);
+        }
+        groundGeometry.computeVertexNormals();
+
+        const groundMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x3a5f0b, // Hijau hutan
+            wireframe: false 
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Tambahkan beberapa "pohon" sederhana (Kotak hijau)
+        for(let i=0; i<30; i++) {
+            const treeGeo = new THREE.ConeGeometry(1, 4, 8);
+            const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300 });
+            const tree = new THREE.Mesh(treeGeo, treeMat);
+            tree.position.x = (Math.random() - 0.5) * 150;
+            tree.position.z = (Math.random() - 0.5) * 150;
+            tree.position.y = 2; // Sesuaikan dengan tinggi tanah
+            tree.castShadow = true;
+            scene.add(tree);
+        }
+
+        // 4. KONTROL PEMAIN (FPS)
+        const controls = new PointerLockControls(camera, document.body);
+        const blocker = document.getElementById('blocker');
+
+        blocker.addEventListener('click', () => {
+            controls.lock();
+        });
+
+        controls.addEventListener('lock', () => {
+            blocker.style.display = 'none';
+        });
+
+        controls.addEventListener('unlock', () => {
+            blocker.style.display = 'flex';
+        });
+
+        // Logika Pergerakan
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let canJump = false;
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+
+        const onKeyDown = (event) => {
+            switch (event.code) {
+                case 'KeyW': moveForward = true; break;
+                case 'KeyA': moveLeft = true; break;
+                case 'KeyS': moveBackward = true; break;
+                case 'KeyD': moveRight = true; break;
+                case 'Space': if (canJump) velocity.y += 15; canJump = false; break;
+            }
+        };
+
+        const onKeyUp = (event) => {
+            switch (event.code) {
+                case 'KeyW': moveForward = false; break;
+                case 'KeyA': moveLeft = false; break;
+                case 'KeyS': moveBackward = false; break;
+                case 'KeyD': moveRight = false; break;
+            }
+        };
+
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        // 5. GAME LOOP
+        let prevTime = performance.now();
+        const coordsDisplay = document.getElementById('coords');
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - prevTime) / 1000;
+
+            if (controls.isLocked) {
+                // Fisika sederhana
+                velocity.x -= velocity.x * 10.0 * delta;
+                velocity.z -= velocity.z * 10.0 * delta;
+                velocity.y -= 9.8 * 5.0 * delta; // Gravitasi
+
+                direction.z = Number(moveForward) - Number(moveBackward);
+                direction.x = Number(moveRight) - Number(moveLeft);
+                direction.normalize();
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * 100.0 * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * 100.0 * delta;
+
+                controls.moveRight(-velocity.x * delta);
+                controls.moveForward(-velocity.z * delta);
+                camera.position.y += velocity.y * delta;
+
+                // Deteksi tanah sederhana (agar tidak jatuh ke bawah bumi)
+                // Di open world asli, kita akan gunakan Raycaster ke bawah
+                if (camera.position.y < 2) {
+                    velocity.y = 0;
+                    camera.position.y = 2;
+                    canJump = true;
+                }
+                
+                // Update UI Koordinat
+                coordsDisplay.innerText = `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
+            }
+
+            prevTime = time;
+            renderer.render(scene, camera);
+        }
+
+        // Handle Resize Window
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
