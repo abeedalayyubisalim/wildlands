@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Crafting & Campfires (Fixed)</title>
+    <title>WILDLANDS: Crafting & Campfires (Fixed v2)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -45,6 +45,11 @@
             color: #aaa; font-size: 12px; background: rgba(0,0,0,0.5);
             padding: 10px; border-radius: 5px; pointer-events: none;
         }
+        #placement-status {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, 40px);
+            font-size: 14px; font-weight: bold; text-shadow: 1px 1px 2px black;
+            display: none; pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -62,6 +67,7 @@
     
     <div id="crosshair"></div>
     <div id="interaction-prompt">[E] Tebang Pohon</div>
+    <div id="placement-status">✓ VALID</div>
     <div id="notification">Game Disimpan!</div>
     
     <div id="controls-help">
@@ -110,7 +116,7 @@
         let choppedTrees = new Set();
         let campfires = [];
         let isPlacingCampfire = false;
-        let placementValid = false; // Status validitas penempatan
+        let placementValid = false;
 
         // --- 2. THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -201,7 +207,9 @@
 
         // --- 5. RAYCASTER & INTERAKSI ---
         const raycaster = new THREE.Raycaster();
-        raycaster.far = 15; // Jarak maksimum raycast
+        // PERBAIKAN: Hapus batasan far yang terlalu pendek, atau buat lebih panjang
+        // raycaster.far = 15; // INI PENYEBAB UTAMA MASALAH!
+        raycaster.far = 100; // Sekarang bisa mendeteksi sampai 100 unit
         const center = new THREE.Vector2(0, 0);
         let targetInstanceId = null;
 
@@ -212,28 +220,77 @@
 
         function createCampfireMesh(isPreview = false) {
             const group = new THREE.Group();
-            const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
-            const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
             
-            for(let i=0; i<4; i++) {
-                const log = new THREE.Mesh(logGeo, logMat);
-                log.rotation.z = Math.PI / 2;
-                log.rotation.y = (i / 4) * Math.PI;
-                log.castShadow = true; log.receiveShadow = true;
-                group.add(log);
-            }
-            
-            const stoneGeo = new THREE.DodecahedronGeometry(0.2);
-            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
-            for(let i=0; i<8; i++) {
-                const stone = new THREE.Mesh(stoneGeo, stoneMat);
-                const angle = (i / 8) * Math.PI * 2;
-                stone.position.set(Math.cos(angle)*0.6, 0, Math.sin(angle)*0.6);
-                stone.castShadow = true;
-                group.add(stone);
-            }
+            if (isPreview) {
+                // ===== PREVIEW MODE: Buat indikator yang SANGAT TERLIHAT =====
+                
+                // 1. Sphere besar transparan (untuk melihat dari jauh)
+                const sphereGeo = new THREE.SphereGeometry(1.5, 16, 16);
+                const sphereMat = new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff00, 
+                    transparent: true, 
+                    opacity: 0.3,
+                    depthWrite: false,
+                    side: THREE.DoubleSide
+                });
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                sphere.position.y = 1;
+                sphere.name = 'previewSphere';
+                group.add(sphere);
+                
+                // 2. Ring di tanah (indikator posisi persis)
+                const ringGeo = new THREE.RingGeometry(1.2, 1.5, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ 
+                    color: 0x00ff00, 
+                    transparent: true, 
+                    opacity: 0.8,
+                    side: THREE.DoubleSide,
+                    depthWrite: false
+                });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2;
+                ring.position.y = 0.05;
+                ring.name = 'previewRing';
+                group.add(ring);
+                
+                // 3. Api unggun transparan (untuk melihat bentuk)
+                const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+                const logMat = new THREE.MeshBasicMaterial({ 
+                    color: 0x4a3018, 
+                    transparent: true, 
+                    opacity: 0.6,
+                    depthWrite: false
+                });
+                for(let i=0; i<4; i++) {
+                    const log = new THREE.Mesh(logGeo, logMat);
+                    log.rotation.z = Math.PI / 2;
+                    log.rotation.y = (i / 4) * Math.PI;
+                    group.add(log);
+                }
+                
+            } else {
+                // ===== REAL CAMPFIRE =====
+                const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+                const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
+                
+                for(let i=0; i<4; i++) {
+                    const log = new THREE.Mesh(logGeo, logMat);
+                    log.rotation.z = Math.PI / 2;
+                    log.rotation.y = (i / 4) * Math.PI;
+                    log.castShadow = true; log.receiveShadow = true;
+                    group.add(log);
+                }
+                
+                const stoneGeo = new THREE.DodecahedronGeometry(0.2);
+                const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
+                for(let i=0; i<8; i++) {
+                    const stone = new THREE.Mesh(stoneGeo, stoneMat);
+                    const angle = (i / 8) * Math.PI * 2;
+                    stone.position.set(Math.cos(angle)*0.6, 0, Math.sin(angle)*0.6);
+                    stone.castShadow = true;
+                    group.add(stone);
+                }
 
-            if (!isPreview) {
                 const fireGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
                 const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
                 const fire = new THREE.Mesh(fireGeo, fireMat);
@@ -246,17 +303,6 @@
                 light.castShadow = true;
                 light.shadow.mapSize.set(512, 512);
                 group.add(light);
-            } else {
-                // Preview mode: buat material transparan
-                group.traverse((child) => {
-                    if (child.isMesh) {
-                        child.material = child.material.clone();
-                        child.material.transparent = true;
-                        child.material.opacity = 0.6;
-                        child.material.emissive = new THREE.Color(0x00ff00); // Hijau default (valid)
-                        child.material.emissiveIntensity = 0.3;
-                    }
-                });
             }
 
             return group;
@@ -264,12 +310,22 @@
 
         function setPreviewColor(isValid) {
             if (!campfirePreview) return;
-            const color = isValid ? 0x00ff00 : 0xff0000; // Hijau = valid, Merah = invalid
+            const color = isValid ? 0x00ff00 : 0xff0000;
             campfirePreview.traverse((child) => {
-                if (child.isMesh && child.material.emissive) {
-                    child.material.emissive.setHex(color);
+                if (child.name === 'previewSphere' || child.name === 'previewRing') {
+                    child.material.color.setHex(color);
                 }
             });
+            
+            // Update status text
+            const statusEl = document.getElementById('placement-status');
+            if (isValid) {
+                statusEl.innerText = '✓ VALID - Tekan F';
+                statusEl.style.color = '#00ff00';
+            } else {
+                statusEl.innerText = '✗ INVALID - Cari daratan';
+                statusEl.style.color = '#ff0000';
+            }
         }
 
         function startPlacementMode() {
@@ -282,7 +338,10 @@
             promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan Api Unggun<br><span style="font-size:14px; color:#aaa">[X] atau [ESC] untuk Batal</span>';
             promptUI.style.display = 'block';
             
+            document.getElementById('placement-status').style.display = 'block';
+            
             showNotification("Mode Placement Aktif! Arahkan ke tanah lalu tekan F");
+            console.log("✅ Placement mode started");
         }
 
         function cancelPlacement() {
@@ -293,6 +352,7 @@
             }
             isPlacingCampfire = false;
             document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
             showNotification("Placement dibatalkan");
         }
 
@@ -313,6 +373,7 @@
             campfirePreview = null;
             isPlacingCampfire = false;
             document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
             
             showNotification("🔥 Api Unggun Dibangun!");
             saveGame();
@@ -328,7 +389,10 @@
         controls.addEventListener('lock', () => blocker.style.display = 'none');
         controls.addEventListener('unlock', () => {
             blocker.style.display = 'flex';
-            if (!isPlacingCampfire) promptUI.style.display = 'none';
+            if (!isPlacingCampfire) {
+                promptUI.style.display = 'none';
+                document.getElementById('placement-status').style.display = 'none';
+            }
         });
 
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
@@ -344,17 +408,18 @@
             if (e.code === 'KeyD') moveRight = true;
             if (e.code === 'Space' && canJump) { velocity.y += 8; canJump = false; }
             
-            // INTERAKSI 'E' - Tebang Pohon (hanya jika TIDAK dalam mode placement)
+            // INTERAKSI 'E' - Tebang Pohon
             if (e.code === 'KeyE' && targetInstanceId !== null && controls.isLocked && !isPlacingCampfire) {
                 chopTree(targetInstanceId);
             }
             
-            // LETAKKAN 'F' - Place Campfire (hanya dalam mode placement)
+            // LETAKKAN 'F' - Place Campfire
             if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) {
+                console.log("F pressed, placementValid:", placementValid);
                 placeCampfire();
             }
             
-            // BATALKAN 'X' atau 'ESC' (saat placement mode)
+            // BATALKAN 'X' atau 'ESC'
             if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) {
                 cancelPlacement();
             }
@@ -586,21 +651,29 @@
                 raycaster.setFromCamera(center, camera);
 
                 if (isPlacingCampfire && campfirePreview) {
-                    // MODE PLACEMENT: Raycast ke terrain untuk preview
+                    // MODE PLACEMENT: Raycast ke terrain
                     const intersects = raycaster.intersectObject(terrain);
-                    if (intersects.length > 0 && intersects[0].distance <= 10) {
+                    
+                    if (intersects.length > 0) {
                         const point = intersects[0].point;
+                        const distance = intersects[0].distance;
                         
-                        // Validasi: tidak di air, tidak terlalu jauh
+                        // Validasi: di daratan dan dalam jangkauan (15 unit)
                         const terrainAtPoint = getTerrainHeight(point.x, point.z);
-                        placementValid = terrainAtPoint > waterLevel + 0.1;
+                        placementValid = terrainAtPoint > waterLevel + 0.1 && distance <= 15;
                         
                         campfirePreview.position.set(point.x, point.y + 0.1, point.z);
                         campfirePreview.visible = true;
                         setPreviewColor(placementValid);
+                        
+                        // Debug log (buka F12 untuk melihat)
+                        if (Math.floor(time / 500) % 2 === 0) { // Log setiap 0.5 detik
+                            console.log(`Raycast: distance=${distance.toFixed(1)}, terrainY=${terrainAtPoint.toFixed(1)}, valid=${placementValid}`);
+                        }
                     } else {
                         campfirePreview.visible = false;
                         placementValid = false;
+                        setPreviewColor(false);
                     }
                 } else {
                     // MODE NORMAL: Raycast ke pohon
