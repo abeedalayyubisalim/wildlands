@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Crafting & Campfires</title>
+    <title>WILDLANDS: Crafting & Campfires (Fixed)</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -26,7 +26,7 @@
         #interaction-prompt {
             position: absolute; top: 55%; left: 50%; transform: translateX(-50%);
             color: #ffff00; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 2px black;
-            display: none; pointer-events: none;
+            display: none; pointer-events: none; text-align: center;
         }
         #blocker {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -39,6 +39,11 @@
             background: rgba(0, 255, 0, 0.2); color: #00ff00;
             padding: 10px 20px; border-radius: 5px; border: 1px solid #00ff00;
             opacity: 0; transition: opacity 0.5s; pointer-events: none;
+        }
+        #controls-help {
+            position: absolute; bottom: 20px; left: 20px;
+            color: #aaa; font-size: 12px; background: rgba(0,0,0,0.5);
+            padding: 10px; border-radius: 5px; pointer-events: none;
         }
     </style>
 </head>
@@ -58,10 +63,18 @@
     <div id="crosshair"></div>
     <div id="interaction-prompt">[E] Tebang Pohon</div>
     <div id="notification">Game Disimpan!</div>
+    
+    <div id="controls-help">
+        <strong>Kontrol:</strong><br>
+        WASD: Gerak | SPACE: Lompat<br>
+        E: Interaksi | F: Letakkan<br>
+        X/ESC: Batalkan Placement
+    </div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI</h1>
-        <p>Gerak: W, A, S, D | Lompat: SPASI | Interaksi: E</p>
+        <p>Gerak: W, A, S, D | Lompat: SPASI</p>
+        <p>E: Interaksi | F: Letakkan Api Unggun</p>
         <p>Tekan ESC untuk melepaskan kursor.</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
@@ -95,8 +108,9 @@
         // State Game
         let inventory = { wood: 0 };
         let choppedTrees = new Set();
-        let campfires = []; // Array of {x, y, z}
+        let campfires = [];
         let isPlacingCampfire = false;
+        let placementValid = false; // Status validitas penempatan
 
         // --- 2. THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -146,7 +160,7 @@
         geometry.computeVertexNormals();
         const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
         terrain.receiveShadow = true;
-        terrain.name = 'terrain'; // Untuk raycasting
+        terrain.name = 'terrain';
         scene.add(terrain);
 
         const waterLevel = -1.5;
@@ -187,11 +201,12 @@
 
         // --- 5. RAYCASTER & INTERAKSI ---
         const raycaster = new THREE.Raycaster();
+        raycaster.far = 15; // Jarak maksimum raycast
         const center = new THREE.Vector2(0, 0);
         let targetInstanceId = null;
 
         // --- 6. CAMPFIRE SYSTEM ---
-        const campfireGroup = new THREE.Group(); // Menyimpan semua api unggun yang dibangun
+        const campfireGroup = new THREE.Group();
         scene.add(campfireGroup);
         let campfirePreview = null;
 
@@ -200,7 +215,6 @@
             const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
             const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
             
-            // Susun kayu melingkar
             for(let i=0; i<4; i++) {
                 const log = new THREE.Mesh(logGeo, logMat);
                 log.rotation.z = Math.PI / 2;
@@ -209,7 +223,6 @@
                 group.add(log);
             }
             
-            // Batu penyangga
             const stoneGeo = new THREE.DodecahedronGeometry(0.2);
             const stoneMat = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
             for(let i=0; i<8; i++) {
@@ -220,7 +233,6 @@
                 group.add(stone);
             }
 
-            // Api (Mesh + PointLight)
             if (!isPreview) {
                 const fireGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
                 const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
@@ -229,21 +241,35 @@
                 fire.name = 'fireMesh';
                 group.add(fire);
 
-                // CAHAYA DINAMIS
-                const light = new THREE.PointLight(0xffaa00, 2, 15); // Warna, Intensitas, Jarak
+                const light = new THREE.PointLight(0xffaa00, 2, 15);
                 light.position.y = 0.5;
                 light.castShadow = true;
                 light.shadow.mapSize.set(512, 512);
                 group.add(light);
             } else {
+                // Preview mode: buat material transparan
                 group.traverse((child) => {
-                    if (child.isMesh) child.material = child.material.clone();
-                    if (child.isMesh) child.material.opacity = 0.5;
-                    if (child.isMesh) child.material.transparent = true;
+                    if (child.isMesh) {
+                        child.material = child.material.clone();
+                        child.material.transparent = true;
+                        child.material.opacity = 0.6;
+                        child.material.emissive = new THREE.Color(0x00ff00); // Hijau default (valid)
+                        child.material.emissiveIntensity = 0.3;
+                    }
                 });
             }
 
             return group;
+        }
+
+        function setPreviewColor(isValid) {
+            if (!campfirePreview) return;
+            const color = isValid ? 0x00ff00 : 0xff0000; // Hijau = valid, Merah = invalid
+            campfirePreview.traverse((child) => {
+                if (child.isMesh && child.material.emissive) {
+                    child.material.emissive.setHex(color);
+                }
+            });
         }
 
         function startPlacementMode() {
@@ -251,17 +277,38 @@
             isPlacingCampfire = true;
             campfirePreview = createCampfireMesh(true);
             scene.add(campfirePreview);
-            document.getElementById('interaction-prompt').innerText = "KLIK KIRI untuk Letakkan | ESC untuk Batal";
-            document.getElementById('interaction-prompt').style.display = 'block';
+            
+            const promptUI = document.getElementById('interaction-prompt');
+            promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan Api Unggun<br><span style="font-size:14px; color:#aaa">[X] atau [ESC] untuk Batal</span>';
+            promptUI.style.display = 'block';
+            
+            showNotification("Mode Placement Aktif! Arahkan ke tanah lalu tekan F");
         }
 
-        function placeCampfire(x, y, z) {
+        function cancelPlacement() {
+            if (!isPlacingCampfire) return;
+            if (campfirePreview) {
+                scene.remove(campfirePreview);
+                campfirePreview = null;
+            }
+            isPlacingCampfire = false;
+            document.getElementById('interaction-prompt').style.display = 'none';
+            showNotification("Placement dibatalkan");
+        }
+
+        function placeCampfire() {
+            if (!campfirePreview || !placementValid) {
+                showNotification("❌ Posisi tidak valid!", true);
+                return;
+            }
+
+            const pos = campfirePreview.position.clone();
             const campfire = createCampfireMesh(false);
-            campfire.position.set(x, y, z);
+            campfire.position.copy(pos);
             campfireGroup.add(campfire);
-            campfires.push({ x, y, z });
+            campfires.push({ x: pos.x, y: pos.y, z: pos.z });
             
-            // Cleanup preview
+            // Cleanup
             scene.remove(campfirePreview);
             campfirePreview = null;
             isPlacingCampfire = false;
@@ -296,14 +343,20 @@
             if (e.code === 'KeyS') moveBackward = true;
             if (e.code === 'KeyD') moveRight = true;
             if (e.code === 'Space' && canJump) { velocity.y += 8; canJump = false; }
+            
+            // INTERAKSI 'E' - Tebang Pohon (hanya jika TIDAK dalam mode placement)
             if (e.code === 'KeyE' && targetInstanceId !== null && controls.isLocked && !isPlacingCampfire) {
                 chopTree(targetInstanceId);
             }
-            if (e.code === 'Escape' && isPlacingCampfire) {
-                scene.remove(campfirePreview);
-                campfirePreview = null;
-                isPlacingCampfire = false;
-                promptUI.style.display = 'none';
+            
+            // LETAKKAN 'F' - Place Campfire (hanya dalam mode placement)
+            if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) {
+                placeCampfire();
+            }
+            
+            // BATALKAN 'X' atau 'ESC' (saat placement mode)
+            if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) {
+                cancelPlacement();
             }
         });
 
@@ -312,19 +365,6 @@
             if (e.code === 'KeyA') moveLeft = false;
             if (e.code === 'KeyS') moveBackward = false;
             if (e.code === 'KeyD') moveRight = false;
-        });
-
-        // Klik Kiri untuk letakkan api unggun
-        document.addEventListener('mousedown', (e) => {
-            if (e.button === 0 && isPlacingCampfire && controls.isLocked) {
-                raycaster.setFromCamera(center, camera);
-                const intersects = raycaster.intersectObject(terrain);
-                if (intersects.length > 0 && intersects[0].distance < 10) {
-                    placeCampfire(intersects[0].point.x, intersects[0].point.y, intersects[0].point.z);
-                } else {
-                    showNotification("Terlalu jauh atau tidak valid!", true);
-                }
-            }
         });
 
         function chopTree(instanceId) {
@@ -425,9 +465,7 @@
                 camera.position.set(data.pos_x, data.pos_y, data.pos_z);
                 timeOfDay = data.time_of_day || 8.0;
                 
-                if (data.inventory) {
-                    inventory = data.inventory;
-                }
+                if (data.inventory) inventory = data.inventory;
 
                 if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
                     data.chopped_trees.forEach(id => {
@@ -438,7 +476,6 @@
                     treeMesh.instanceMatrix.needsUpdate = true;
                 }
 
-                // Muat Api Unggun
                 if (data.campfires && Array.isArray(data.campfires)) {
                     campfires = data.campfires;
                     campfires.forEach(pos => {
@@ -510,7 +547,7 @@
             waterPosAttr.needsUpdate = true;
             waterGeo.computeVertexNormals();
 
-            // Animasi Api Unggun (Flicker / Kedip)
+            // Animasi Api Unggun (Flicker)
             const flicker = Math.sin(time * 0.05) * 0.2 + Math.random() * 0.2;
             campfireGroup.children.forEach(campfire => {
                 campfire.children.forEach(child => {
@@ -549,23 +586,30 @@
                 raycaster.setFromCamera(center, camera);
 
                 if (isPlacingCampfire && campfirePreview) {
-                    // Raycast ke tanah untuk penempatan
+                    // MODE PLACEMENT: Raycast ke terrain untuk preview
                     const intersects = raycaster.intersectObject(terrain);
-                    if (intersects.length > 0 && intersects[0].distance < 10) {
-                        campfirePreview.position.copy(intersects[0].point);
-                        campfirePreview.position.y += 0.1; // Sedikit di atas tanah
+                    if (intersects.length > 0 && intersects[0].distance <= 10) {
+                        const point = intersects[0].point;
+                        
+                        // Validasi: tidak di air, tidak terlalu jauh
+                        const terrainAtPoint = getTerrainHeight(point.x, point.z);
+                        placementValid = terrainAtPoint > waterLevel + 0.1;
+                        
+                        campfirePreview.position.set(point.x, point.y + 0.1, point.z);
                         campfirePreview.visible = true;
+                        setPreviewColor(placementValid);
                     } else {
                         campfirePreview.visible = false;
+                        placementValid = false;
                     }
                 } else {
-                    // Raycast ke pohon
+                    // MODE NORMAL: Raycast ke pohon
                     const intersects = raycaster.intersectObject(treeMesh);
                     if (intersects.length > 0 && intersects[0].distance < 6) {
                         const instanceId = intersects[0].instanceId;
                         if (!choppedTrees.has(instanceId)) {
                             targetInstanceId = instanceId;
-                            promptUI.innerText = "[E] Tebang Pohon";
+                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
                             promptUI.style.display = 'block';
                         } else {
                             targetInstanceId = null;
@@ -573,7 +617,7 @@
                         }
                     } else {
                         targetInstanceId = null;
-                        if (!isPlacingCampfire) promptUI.style.display = 'none';
+                        promptUI.style.display = 'none';
                     }
                 }
 
