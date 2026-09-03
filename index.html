@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Stable Build</title>
+    <title>WILDLANDS: Fire Arrow</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -74,7 +74,7 @@
             position: absolute; bottom: 20px; right: 20px;
             background: rgba(0,0,0,0.7); color: #fff;
             padding: 10px 15px; border-radius: 5px;
-            border: 1px solid #555; pointer-events: none; min-width: 180px;
+            border: 1px solid #555; pointer-events: none; min-width: 200px;
         }
         #weapon-hud .weapon-name { color: #ffaa00; font-weight: bold; font-size: 14px; }
         #weapon-hud .ammo { color: #00ff00; font-size: 18px; }
@@ -92,15 +92,13 @@
             pointer-events: none; display: none;
         }
         .drone-hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff6666); transition: width 0.2s; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-        
-        /* DEBUG CONSOLE */
-        #debug-console {
-            position: absolute; bottom: 10px; right: 10px;
-            background: rgba(0,0,0,0.8); color: #0f0; font-size: 10px;
-            padding: 5px; max-width: 300px; max-height: 100px; overflow-y: auto;
-            display: none; pointer-events: none;
+        .drone-burn-indicator {
+            position: absolute; width: 60px; height: 4px;
+            background: #331100; border: 1px solid #ff6600;
+            pointer-events: none; display: none; margin-top: 2px;
         }
+        .drone-burn-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff6600, #ffaa00); transition: width 0.2s; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
     </style>
 </head>
 <body>
@@ -115,7 +113,7 @@
         <div class="bar-container"><div id="hunger-bar"></div></div>
         <p>💧 Haus: <span id="thirst-text">100</span></p>
         <div class="bar-container"><div id="thirst-bar"></div></div>
-        <p>🪵 <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🪨 <span id="inv-stones">0</span></p>
+        <p>🪵 <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> | 🪨 <span id="inv-stones">0</span></p>
         <p>🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
     </div>
     
@@ -137,23 +135,24 @@
     <div id="weapon-hud">
         <div class="weapon-name" id="weapon-name">👊 Tangan Kosong</div>
         <div class="ammo" id="weapon-ammo">-</div>
-        <div class="hint">[1] Batu [2] Panah | Klik Kiri: Tembak</div>
+        <div class="hint">[1] Batu [2] Panah [3] Panah Api<br>[G] Craft Panah Api | Klik Kiri: Tembak</div>
     </div>
     
     <div id="controls-help">
         <strong>Kontrol:</strong><br>
         WASD: Gerak | SPACE: Lompat | SHIFT: Sprint<br>
         E: Interaksi | C: Craft Api | F: Letakkan<br>
-        T: Craft Panah | Q: Save | R: Load
+        T: Craft Panah | G: Craft Panah Api (1 Kayu + 1 Panah)<br>
+        1: Batu | 2: Panah | 3: Panah Api | Q: Save | R: Load
     </div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI</h1>
-        <p>Gerak: WASD | Lompat: SPACE | Sprint: SHIFT</p>
+        <p>🔥 Senjata baru: <span style="color:#ff6600">Panah Api</span>!</p>
+        <p>Craft dengan tombol <span style="color:#ffaa00">G</span> (butuh 1 Kayu + 1 Panah)</p>
+        <p>Panah api memberikan <span style="color:#ff4444">damage bakar</span> selama 3 detik!</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat...</p>
     </div>
-
-    <div id="debug-console"></div>
 
     <script type="importmap">
         {
@@ -166,1182 +165,1307 @@
     </script>
 
     <script type="module">
-        // ============ DEBUG HELPER ============
-        function debugLog(msg) {
-            console.log('[WILDLANDS]', msg);
-            const dc = document.getElementById('debug-console');
-            if (dc) {
-                dc.style.display = 'block';
-                dc.innerHTML += `<div>${msg}</div>`;
-                dc.scrollTop = dc.scrollHeight;
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { createClient } from '@supabase/supabase-js';
+
+        // ============ SOUND MANAGER ============
+        const SoundManager = {
+            ctx: null,
+            enabled: true,
+            init() {
+                try {
+                    if (!this.ctx) {
+                        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                        if (!AudioCtx) { this.enabled = false; return; }
+                        this.ctx = new AudioCtx();
+                    }
+                    if (this.ctx.state === 'suspended') this.ctx.resume();
+                } catch (e) { this.enabled = false; }
+            },
+            play(type) {
+                if (!this.enabled || !this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    
+                    if (type === 'footstep') {
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(100 + Math.random() * 50, now);
+                        gain.gain.setValueAtTime(0.1, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                        osc.start(now); osc.stop(now + 0.05);
+                    } else if (type === 'chop') {
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(150, now);
+                        osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'shoot_arrow') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(800, now);
+                        osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+                        gain.gain.setValueAtTime(0.2, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'shoot_fire') {
+                        // Suara api menyala
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(200, now);
+                        osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                        osc.start(now); osc.stop(now + 0.25);
+                    } else if (type === 'shoot_stone') {
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(300, now);
+                        osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'hit') {
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(100, now);
+                        gain.gain.setValueAtTime(0.3, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                        osc.start(now); osc.stop(now + 0.2);
+                    } else if (type === 'burn') {
+                        // Suara terbakar
+                        osc.type = 'sawtooth';
+                        osc.frequency.setValueAtTime(80 + Math.random() * 40, now);
+                        gain.gain.setValueAtTime(0.15, now);
+                        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'eat' || type === 'drink') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(400, now);
+                        osc.frequency.linearRampToValueAtTime(600, now + 0.1);
+                        gain.gain.setValueAtTime(0.2, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'craft') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(600, now);
+                        osc.frequency.linearRampToValueAtTime(800, now + 0.15);
+                        gain.gain.setValueAtTime(0.15, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    }
+                } catch (e) {}
+            }
+        };
+
+        // ============ SUPABASE ============
+        const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sc2lid2loZnplaHFjZGF3cmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxMTcwNTEsImV4cCI6MjEwMzY5MzA1MX0.faKWNZqTLE6nEH6nPw0L4uFepTy6ZvqrZDy2BaHcWxs';
+        let supabase;
+        try { supabase = createClient(supabaseUrl, supabaseKey); } catch (e) {}
+
+        let playerId = localStorage.getItem('wildlands_player_id');
+        if (!playerId) {
+            playerId = 'player_' + Math.random().toString(36).substring(2, 11);
+            localStorage.setItem('wildlands_player_id', playerId);
+        }
+
+        // ============ STATE GAME ============
+        let inventory = { wood: 0, arrows: 0, stones: 0, fire_arrows: 0 };
+        let choppedTrees = new Set();
+        let campfires = [];
+        let isPlacingCampfire = false;
+        let placementValid = false;
+        
+        let playerHealth = 100, MAX_HEALTH = 100;
+        let playerStamina = 100, MAX_STAMINA = 100;
+        let playerHunger = 100, MAX_HUNGER = 100;
+        let playerThirst = 100, MAX_THIRST = 100;
+        
+        // DIPERLAMBAT: Sekarang butuh ~5 menit untuk habis
+        const STAMINA_DRAIN_RATE = 15;
+        const STAMINA_REGEN_RATE = 5;
+        const STAMINA_REGEN_CAMPFIRE = 20;
+        const HP_REGEN_CAMPFIRE = 5;
+        const HUNGER_DECAY = 0.3;   // 100 / 0.3 = ~333 detik (~5.5 menit)
+        const THIRST_DECAY = 0.4;   // 100 / 0.4 = 250 detik (~4 menit)
+        const CAMPFIRE_RADIUS = 8;
+        
+        let isSprinting = false;
+        let isNearCampfire = false;
+        let currentWeapon = 'none';
+        let starvationTimer = 0;
+        let isGameOver = false;
+        
+        let quest = {
+            active: true, title: "Ancaman Udara", description: "Hancurkan 3 Drone",
+            type: "destroy_drones", target: 3, current: 0, completed: false
+        };
+
+        // ============ THREE.JS SETUP ============
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        const d = 150;
+        sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
+
+        // ============ TERRAIN ============
+        const worldSize = 300;
+        const geometry = new THREE.PlaneGeometry(worldSize, worldSize, 150, 150);
+        geometry.rotateX(-Math.PI / 2);
+        const posAttribute = geometry.attributes.position;
+        const colors = [];
+        const colorObj = new THREE.Color();
+
+        function getTerrainHeight(x, z) {
+            let y = 0;
+            y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
+            y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
+            y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;
+            return y;
+        }
+
+        for (let i = 0; i < posAttribute.count; i++) {
+            const x = posAttribute.getX(i), z = posAttribute.getZ(i);
+            const y = getTerrainHeight(x, z);
+            posAttribute.setY(i, y);
+            if (y < -2) colorObj.setHex(0x2d4c1e);
+            else if (y < 3) colorObj.setHex(0x4a7c2e);
+            else if (y < 6) colorObj.setHex(0x6b6b6b);
+            else colorObj.setHex(0xffffff);
+            colors.push(colorObj.r, colorObj.g, colorObj.b);
+        }
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geometry.computeVertexNormals();
+        const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
+        terrain.receiveShadow = true;
+        terrain.name = 'terrain';
+        scene.add(terrain);
+
+        const waterLevel = -1.5;
+        const waterGeo = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2, 80, 80);
+        waterGeo.rotateX(-Math.PI / 2);
+        const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true }));
+        water.position.y = waterLevel;
+        scene.add(water);
+        const waterPosAttr = waterGeo.attributes.position;
+        const waterOriginalY = new Float32Array(waterPosAttr.count);
+        for (let i = 0; i < waterPosAttr.count; i++) waterOriginalY[i] = waterPosAttr.getY(i);
+
+        // ============ POHON ============
+        const treeCount = 800;
+        const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
+        const treeMesh = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
+        treeMesh.castShadow = true; treeMesh.receiveShadow = true;
+        treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const dummy = new THREE.Object3D();
+        for (let i = 0; i < treeCount; i++) {
+            const x = (Math.random() - 0.5) * worldSize * 0.9;
+            const z = (Math.random() - 0.5) * worldSize * 0.9;
+            const y = getTerrainHeight(x, z);
+            if (y > waterLevel + 0.5 && y < 4) {
+                dummy.position.set(x, y + 2.5, z);
+                dummy.scale.setScalar(0.8 + Math.random() * 0.6);
+                dummy.rotation.y = Math.random() * Math.PI;
+                dummy.updateMatrix();
+                treeMesh.setMatrixAt(i, dummy.matrix);
+            } else {
+                dummy.position.set(0, -100, 0); dummy.updateMatrix();
+                treeMesh.setMatrixAt(i, dummy.matrix);
             }
         }
-        
-        window.addEventListener('error', (e) => {
-            debugLog('❌ ERROR: ' + e.message);
-        });
+        scene.add(treeMesh);
 
-        try {
-            debugLog('Script dimulai...');
-            
-            // ============ IMPORTS ============
-            const THREE = await import('three');
-            const { PointerLockControls } = await import('three/addons/controls/PointerLockControls.js');
-            const { createClient } = await import('@supabase/supabase-js');
-            
-            debugLog('✅ Semua modul berhasil di-import');
+        // ============ BATU & BERRY ============
+        const stoneGroup = new THREE.Group(); scene.add(stoneGroup);
+        const stoneMeshes = [];
+        const stoneGeo = new THREE.DodecahedronGeometry(0.4, 0);
+        const stoneMat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true, roughness: 0.9 });
 
-            // ============ SOUND MANAGER (AMAN) ============
-            const SoundManager = {
-                ctx: null,
-                enabled: true,
-                init() {
-                    try {
-                        if (!this.ctx) {
-                            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-                            if (!AudioCtx) {
-                                debugLog('⚠️ AudioContext tidak didukung');
-                                this.enabled = false;
-                                return;
-                            }
-                            this.ctx = new AudioCtx();
-                            debugLog('✅ AudioContext dibuat');
-                        }
-                        if (this.ctx.state === 'suspended') {
-                            this.ctx.resume();
-                        }
-                    } catch (e) {
-                        debugLog('⚠️ Audio init gagal: ' + e.message);
-                        this.enabled = false;
-                    }
-                },
-                play(type) {
-                    if (!this.enabled || !this.ctx) return;
-                    try {
-                        const now = this.ctx.currentTime;
-                        const osc = this.ctx.createOscillator();
-                        const gain = this.ctx.createGain();
-                        osc.connect(gain);
-                        gain.connect(this.ctx.destination);
-                        
-                        if (type === 'footstep') {
-                            osc.type = 'triangle';
-                            osc.frequency.setValueAtTime(100 + Math.random() * 50, now);
-                            gain.gain.setValueAtTime(0.1, now);
-                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
-                            osc.start(now); osc.stop(now + 0.05);
-                        } else if (type === 'chop') {
-                            osc.type = 'sawtooth';
-                            osc.frequency.setValueAtTime(150, now);
-                            osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
-                            gain.gain.setValueAtTime(0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-                            osc.start(now); osc.stop(now + 0.1);
-                        } else if (type === 'shoot_arrow') {
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(800, now);
-                            osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
-                            gain.gain.setValueAtTime(0.2, now);
-                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
-                            osc.start(now); osc.stop(now + 0.15);
-                        } else if (type === 'shoot_stone') {
-                            osc.type = 'triangle';
-                            osc.frequency.setValueAtTime(300, now);
-                            osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
-                            gain.gain.setValueAtTime(0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-                            osc.start(now); osc.stop(now + 0.1);
-                        } else if (type === 'hit') {
-                            osc.type = 'square';
-                            osc.frequency.setValueAtTime(100, now);
-                            gain.gain.setValueAtTime(0.3, now);
-                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
-                            osc.start(now); osc.stop(now + 0.2);
-                        } else if (type === 'eat' || type === 'drink') {
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(400, now);
-                            osc.frequency.linearRampToValueAtTime(600, now + 0.1);
-                            gain.gain.setValueAtTime(0.2, now);
-                            gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
-                            osc.start(now); osc.stop(now + 0.1);
-                        } else if (type === 'craft') {
-                            osc.type = 'sine';
-                            osc.frequency.setValueAtTime(600, now);
-                            osc.frequency.linearRampToValueAtTime(800, now + 0.15);
-                            gain.gain.setValueAtTime(0.15, now);
-                            gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
-                            osc.start(now); osc.stop(now + 0.15);
-                        }
-                    } catch (e) {
-                        // Silent fail untuk audio
-                    }
-                }
-            };
+        const berryGroup = new THREE.Group(); scene.add(berryGroup);
+        const berryMeshes = [];
+        const berryGeo = new THREE.SphereGeometry(0.3, 8, 8);
+        const berryMat = new THREE.MeshStandardMaterial({ color: 0xff2222, roughness: 0.8 });
 
-            // ============ SUPABASE ============
-            const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
-            const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sc2lid2loZnplaHFjZGF3cmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxMTcwNTEsImV4cCI6MjEwMzY5MzA1MX0.faKWNZqTLE6nEH6nPw0L4uFepTy6ZvqrZDy2BaHcWxs';
-            let supabase;
-            try {
-                supabase = createClient(supabaseUrl, supabaseKey);
-                debugLog('✅ Supabase terhubung');
-            } catch (e) {
-                debugLog('⚠️ Supabase gagal: ' + e.message);
-            }
-
-            let playerId = localStorage.getItem('wildlands_player_id');
-            if (!playerId) {
-                playerId = 'player_' + Math.random().toString(36).substring(2, 11);
-                localStorage.setItem('wildlands_player_id', playerId);
-            }
-
-            // ============ STATE GAME ============
-            let inventory = { wood: 0, arrows: 0, stones: 0 };
-            let choppedTrees = new Set();
-            let campfires = [];
-            let isPlacingCampfire = false;
-            let placementValid = false;
-            
-            let playerHealth = 100, MAX_HEALTH = 100;
-            let playerStamina = 100, MAX_STAMINA = 100;
-            let playerHunger = 100, MAX_HUNGER = 100;
-            let playerThirst = 100, MAX_THIRST = 100;
-            
-            const STAMINA_DRAIN_RATE = 15;
-            const STAMINA_REGEN_RATE = 5;
-            const STAMINA_REGEN_CAMPFIRE = 20;
-            const HP_REGEN_CAMPFIRE = 5;
-            const HUNGER_DECAY = 1.5;
-            const THIRST_DECAY = 2.0;
-            const CAMPFIRE_RADIUS = 8;
-            
-            let isSprinting = false;
-            let isNearCampfire = false;
-            let currentWeapon = 'none';
-            let starvationTimer = 0;
-            let isGameOver = false;
-            
-            let quest = {
-                active: true, title: "Ancaman Udara", description: "Hancurkan 3 Drone",
-                type: "destroy_drones", target: 3, current: 0, completed: false
-            };
-
-            // ============ THREE.JS SETUP ============
-            debugLog('Membuat scene Three.js...');
-            const scene = new THREE.Scene();
-            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            const renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
-            document.body.appendChild(renderer.domElement);
-            debugLog('✅ Renderer dibuat');
-
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-            scene.add(ambientLight);
-            const sunLight = new THREE.DirectionalLight(0xffffff, 1);
-            sunLight.castShadow = true;
-            sunLight.shadow.mapSize.set(2048, 2048);
-            const d = 150;
-            sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
-            sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
-            scene.add(sunLight);
-
-            // ============ TERRAIN ============
-            const worldSize = 300;
-            const geometry = new THREE.PlaneGeometry(worldSize, worldSize, 150, 150);
-            geometry.rotateX(-Math.PI / 2);
-            const posAttribute = geometry.attributes.position;
-            const colors = [];
-            const colorObj = new THREE.Color();
-
-            function getTerrainHeight(x, z) {
-                let y = 0;
-                y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
-                y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
-                y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;
-                return y;
-            }
-
-            for (let i = 0; i < posAttribute.count; i++) {
-                const x = posAttribute.getX(i), z = posAttribute.getZ(i);
-                const y = getTerrainHeight(x, z);
-                posAttribute.setY(i, y);
-                if (y < -2) colorObj.setHex(0x2d4c1e);
-                else if (y < 3) colorObj.setHex(0x4a7c2e);
-                else if (y < 6) colorObj.setHex(0x6b6b6b);
-                else colorObj.setHex(0xffffff);
-                colors.push(colorObj.r, colorObj.g, colorObj.b);
-            }
-            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-            geometry.computeVertexNormals();
-            const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
-            terrain.receiveShadow = true;
-            terrain.name = 'terrain';
-            scene.add(terrain);
-
-            const waterLevel = -1.5;
-            const waterGeo = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2, 80, 80);
-            waterGeo.rotateX(-Math.PI / 2);
-            const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true }));
-            water.position.y = waterLevel;
-            scene.add(water);
-            const waterPosAttr = waterGeo.attributes.position;
-            const waterOriginalY = new Float32Array(waterPosAttr.count);
-            for (let i = 0; i < waterPosAttr.count; i++) waterOriginalY[i] = waterPosAttr.getY(i);
-
-            // ============ POHON ============
-            const treeCount = 800;
-            const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
-            const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
-            const treeMesh = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
-            treeMesh.castShadow = true; treeMesh.receiveShadow = true;
-            treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-            const dummy = new THREE.Object3D();
-            for (let i = 0; i < treeCount; i++) {
-                const x = (Math.random() - 0.5) * worldSize * 0.9;
-                const z = (Math.random() - 0.5) * worldSize * 0.9;
-                const y = getTerrainHeight(x, z);
-                if (y > waterLevel + 0.5 && y < 4) {
-                    dummy.position.set(x, y + 2.5, z);
-                    dummy.scale.setScalar(0.8 + Math.random() * 0.6);
-                    dummy.rotation.y = Math.random() * Math.PI;
-                    dummy.updateMatrix();
-                    treeMesh.setMatrixAt(i, dummy.matrix);
-                } else {
-                    dummy.position.set(0, -100, 0); dummy.updateMatrix();
-                    treeMesh.setMatrixAt(i, dummy.matrix);
+        for (let i = 0; i < 40; i++) {
+            const x = (Math.random() - 0.5) * worldSize * 0.8;
+            const z = (Math.random() - 0.5) * worldSize * 0.8;
+            const y = getTerrainHeight(x, z);
+            if (y > waterLevel + 0.5 && y < 5) {
+                const stone = new THREE.Mesh(stoneGeo, stoneMat);
+                stone.position.set(x, y + 0.3, z);
+                stone.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+                stone.scale.setScalar(0.8 + Math.random() * 0.5);
+                stone.castShadow = true;
+                stone.userData.isStone = true;
+                stoneGroup.add(stone);
+                stoneMeshes.push(stone);
+                
+                if (i % 3 === 0) {
+                    const bush = new THREE.Group();
+                    const berry = new THREE.Mesh(berryGeo, berryMat);
+                    berry.position.y = 0.5;
+                    bush.add(berry);
+                    bush.position.set(x + 2, y, z + 2);
+                    bush.userData.isBerry = true;
+                    berryGroup.add(bush);
+                    berryMeshes.push(bush);
                 }
             }
-            scene.add(treeMesh);
+        }
 
-            // ============ BATU & BERRY ============
-            const stoneGroup = new THREE.Group(); scene.add(stoneGroup);
-            const stoneMeshes = [];
-            const stoneGeo = new THREE.DodecahedronGeometry(0.4, 0);
-            const stoneMat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true, roughness: 0.9 });
+        // ============ RAYCASTER ============
+        const raycaster = new THREE.Raycaster();
+        raycaster.far = 100;
+        const center = new THREE.Vector2(0, 0);
+        let targetInstanceId = null;
+        let targetStone = null;
+        let targetBerry = null;
 
-            const berryGroup = new THREE.Group(); scene.add(berryGroup);
-            const berryMeshes = [];
-            const berryGeo = new THREE.SphereGeometry(0.3, 8, 8);
-            const berryMat = new THREE.MeshStandardMaterial({ color: 0xff2222, roughness: 0.8 });
+        // ============ CAMPFIRE SYSTEM ============
+        const campfireGroup = new THREE.Group();
+        scene.add(campfireGroup);
+        let campfirePreview = null;
 
-            for (let i = 0; i < 40; i++) {
-                const x = (Math.random() - 0.5) * worldSize * 0.8;
-                const z = (Math.random() - 0.5) * worldSize * 0.8;
-                const y = getTerrainHeight(x, z);
-                if (y > waterLevel + 0.5 && y < 5) {
-                    const stone = new THREE.Mesh(stoneGeo, stoneMat);
-                    stone.position.set(x, y + 0.3, z);
-                    stone.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-                    stone.scale.setScalar(0.8 + Math.random() * 0.5);
+        function createCampfireMesh(isPreview = false) {
+            const group = new THREE.Group();
+            if (isPreview) {
+                const sphereGeo = new THREE.SphereGeometry(1.5, 16, 16);
+                const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                sphere.position.y = 1; sphere.name = 'previewSphere';
+                group.add(sphere);
+                const ringGeo = new THREE.RingGeometry(1.2, 1.5, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.name = 'previewRing';
+                group.add(ring);
+            } else {
+                const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+                const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
+                for(let i=0; i<4; i++) {
+                    const log = new THREE.Mesh(logGeo, logMat);
+                    log.rotation.z = Math.PI / 2; log.rotation.y = (i / 4) * Math.PI;
+                    log.castShadow = true; log.receiveShadow = true;
+                    group.add(log);
+                }
+                const stoneGeoLocal = new THREE.DodecahedronGeometry(0.2);
+                const stoneMatLocal = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
+                for(let i=0; i<8; i++) {
+                    const stone = new THREE.Mesh(stoneGeoLocal, stoneMatLocal);
+                    const angle = (i / 8) * Math.PI * 2;
+                    stone.position.set(Math.cos(angle)*0.6, 0, Math.sin(angle)*0.6);
                     stone.castShadow = true;
-                    stone.userData.isStone = true;
-                    stoneGroup.add(stone);
-                    stoneMeshes.push(stone);
+                    group.add(stone);
+                }
+                const fireGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+                const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
+                const fire = new THREE.Mesh(fireGeo, fireMat);
+                fire.position.y = 0.4; fire.name = 'fireMesh';
+                group.add(fire);
+                const light = new THREE.PointLight(0xffaa00, 2, 15);
+                light.position.y = 0.5; light.castShadow = true;
+                group.add(light);
+            }
+            return group;
+        }
+
+        function setPreviewColor(isValid) {
+            if (!campfirePreview) return;
+            const color = isValid ? 0x00ff00 : 0xff0000;
+            campfirePreview.traverse((child) => {
+                if (child.name === 'previewSphere' || child.name === 'previewRing') child.material.color.setHex(color);
+            });
+            const statusEl = document.getElementById('placement-status');
+            if (isValid) { statusEl.innerText = '✓ VALID - Tekan F'; statusEl.style.color = '#00ff00'; }
+            else { statusEl.innerText = '✗ INVALID'; statusEl.style.color = '#ff0000'; }
+        }
+
+        function startPlacementMode() {
+            if (isPlacingCampfire) return;
+            isPlacingCampfire = true;
+            campfirePreview = createCampfireMesh(true);
+            scene.add(campfirePreview);
+            const promptUI = document.getElementById('interaction-prompt');
+            promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan<br><span style="font-size:14px; color:#aaa">[X] Batal</span>';
+            promptUI.style.display = 'block';
+            document.getElementById('placement-status').style.display = 'block';
+        }
+
+        function cancelPlacement() {
+            if (!isPlacingCampfire) return;
+            if (campfirePreview) { scene.remove(campfirePreview); campfirePreview = null; }
+            isPlacingCampfire = false;
+            document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
+        }
+
+        function placeCampfire() {
+            if (!campfirePreview || !placementValid) {
+                showNotification("❌ Posisi tidak valid!", true);
+                return;
+            }
+            const pos = campfirePreview.position.clone();
+            const campfire = createCampfireMesh(false);
+            campfire.position.copy(pos);
+            campfireGroup.add(campfire);
+            campfires.push({ x: pos.x, y: pos.y, z: pos.z });
+            scene.remove(campfirePreview);
+            campfirePreview = null;
+            isPlacingCampfire = false;
+            document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
+            showNotification("🔥 Api Unggun Dibangun!");
+            SoundManager.play('craft');
+            saveGame();
+        }
+
+        // ============ PROJECTILE SYSTEM (dengan Fire Arrow) ============
+        const projectiles = [];
+        
+        class Projectile {
+            constructor(type, startPos, direction) {
+                this.type = type;
+                this.alive = true;
+                this.age = 0;
+                this.isFire = (type === 'fire_arrow');
+                
+                if (type === 'arrow' || type === 'fire_arrow') {
+                    this.maxAge = 4;
+                    const geo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 6);
+                    const mat = new THREE.MeshStandardMaterial({ 
+                        color: type === 'fire_arrow' ? 0xff4400 : 0x8b4513,
+                        emissive: type === 'fire_arrow' ? 0xff2200 : 0x000000,
+                        emissiveIntensity: type === 'fire_arrow' ? 0.5 : 0
+                    });
+                    this.mesh = new THREE.Mesh(geo, mat);
                     
-                    if (i % 3 === 0) {
-                        const bush = new THREE.Group();
-                        const berry = new THREE.Mesh(berryGeo, berryMat);
-                        berry.position.y = 0.5;
-                        bush.add(berry);
-                        bush.position.set(x + 2, y, z + 2);
-                        bush.userData.isBerry = true;
-                        berryGroup.add(bush);
-                        berryMeshes.push(bush);
+                    const tipGeo = new THREE.ConeGeometry(0.1, 0.2, 6);
+                    const tipMat = new THREE.MeshStandardMaterial({ 
+                        color: 0xaaaaaa, metalness: 0.8,
+                        emissive: type === 'fire_arrow' ? 0xff4400 : 0x000000,
+                        emissiveIntensity: type === 'fire_arrow' ? 0.8 : 0
+                    });
+                    const tip = new THREE.Mesh(tipGeo, tipMat);
+                    tip.position.y = 0.5;
+                    this.mesh.add(tip);
+                    
+                    // Trail api untuk fire arrow
+                    if (type === 'fire_arrow') {
+                        this.trailParticles = [];
+                        this.trailTimer = 0;
+                        // Tambahkan cahaya api di ujung panah
+                        const fireLight = new THREE.PointLight(0xff4400, 1, 5);
+                        fireLight.position.y = 0.5;
+                        this.mesh.add(fireLight);
+                        this.fireLight = fireLight;
                     }
-                }
-            }
-
-            // ============ RAYCASTER ============
-            const raycaster = new THREE.Raycaster();
-            raycaster.far = 100;
-            const center = new THREE.Vector2(0, 0);
-            let targetInstanceId = null;
-            let targetStone = null;
-            let targetBerry = null;
-
-            // ============ CAMPFIRE SYSTEM ============
-            const campfireGroup = new THREE.Group();
-            scene.add(campfireGroup);
-            let campfirePreview = null;
-
-            function createCampfireMesh(isPreview = false) {
-                const group = new THREE.Group();
-                if (isPreview) {
-                    const sphereGeo = new THREE.SphereGeometry(1.5, 16, 16);
-                    const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
-                    const sphere = new THREE.Mesh(sphereGeo, sphereMat);
-                    sphere.position.y = 1; sphere.name = 'previewSphere';
-                    group.add(sphere);
-                    const ringGeo = new THREE.RingGeometry(1.2, 1.5, 32);
-                    const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
-                    const ring = new THREE.Mesh(ringGeo, ringMat);
-                    ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.name = 'previewRing';
-                    group.add(ring);
+                    
+                    this.damage = type === 'fire_arrow' ? 15 : 25;
+                    this.burnDamage = type === 'fire_arrow' ? 5 : 0; // damage per detik saat terbakar
+                    this.burnDuration = type === 'fire_arrow' ? 3 : 0; // detik
+                    this.speed = 50;
+                    this.gravity = 9.8;
                 } else {
-                    const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
-                    const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
-                    for(let i=0; i<4; i++) {
-                        const log = new THREE.Mesh(logGeo, logMat);
-                        log.rotation.z = Math.PI / 2; log.rotation.y = (i / 4) * Math.PI;
-                        log.castShadow = true; log.receiveShadow = true;
-                        group.add(log);
-                    }
-                    const stoneGeoLocal = new THREE.DodecahedronGeometry(0.2);
-                    const stoneMatLocal = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
-                    for(let i=0; i<8; i++) {
-                        const stone = new THREE.Mesh(stoneGeoLocal, stoneMatLocal);
-                        const angle = (i / 8) * Math.PI * 2;
-                        stone.position.set(Math.cos(angle)*0.6, 0, Math.sin(angle)*0.6);
-                        stone.castShadow = true;
-                        group.add(stone);
-                    }
-                    const fireGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
-                    const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
-                    const fire = new THREE.Mesh(fireGeo, fireMat);
-                    fire.position.y = 0.4; fire.name = 'fireMesh';
-                    group.add(fire);
-                    const light = new THREE.PointLight(0xffaa00, 2, 15);
-                    light.position.y = 0.5; light.castShadow = true;
-                    group.add(light);
+                    this.maxAge = 2;
+                    const geo = new THREE.DodecahedronGeometry(0.2, 0);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true });
+                    this.mesh = new THREE.Mesh(geo, mat);
+                    this.damage = 10;
+                    this.burnDamage = 0;
+                    this.burnDuration = 0;
+                    this.speed = 25;
+                    this.gravity = 15;
                 }
-                return group;
+                
+                this.mesh.position.copy(startPos);
+                this.mesh.castShadow = true;
+                this.velocity = direction.clone().multiplyScalar(this.speed);
+                this.velocity.y += 5;
+                scene.add(this.mesh);
             }
-
-            function setPreviewColor(isValid) {
-                if (!campfirePreview) return;
-                const color = isValid ? 0x00ff00 : 0xff0000;
-                campfirePreview.traverse((child) => {
-                    if (child.name === 'previewSphere' || child.name === 'previewRing') child.material.color.setHex(color);
+            
+            update(delta) {
+                if (!this.alive) return;
+                this.age += delta;
+                if (this.age > this.maxAge) { this.destroy(); return; }
+                
+                this.velocity.y -= this.gravity * delta;
+                const moveVec = this.velocity.clone().multiplyScalar(delta);
+                this.mesh.position.add(moveVec);
+                
+                // Buat trail api untuk fire arrow
+                if (this.isFire) {
+                    this.trailTimer += delta;
+                    if (this.trailTimer > 0.03) { // Setiap 30ms buat partikel baru
+                        this.trailTimer = 0;
+                        this.createTrailParticle();
+                    }
+                    // Update partikel trail
+                    for (let i = this.trailParticles.length - 1; i >= 0; i--) {
+                        const p = this.trailParticles[i];
+                        p.life -= delta;
+                        if (p.life <= 0) {
+                            scene.remove(p.mesh);
+                            this.trailParticles.splice(i, 1);
+                        } else {
+                            p.mesh.position.y += delta * 1.5;
+                            p.mesh.scale.setScalar(p.life / p.maxLife);
+                            p.mesh.material.opacity = p.life / p.maxLife;
+                        }
+                    }
+                    // Flicker cahaya api
+                    if (this.fireLight) {
+                        this.fireLight.intensity = 0.8 + Math.random() * 0.4;
+                    }
+                }
+                
+                if (this.mesh.position.y < getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.2 || this.mesh.position.y < waterLevel) {
+                    this.destroy();
+                }
+            }
+            
+            createTrailParticle() {
+                const geo = new THREE.SphereGeometry(0.15, 6, 6);
+                const mat = new THREE.MeshBasicMaterial({ 
+                    color: Math.random() > 0.5 ? 0xff6600 : 0xffaa00,
+                    transparent: true, opacity: 0.8
                 });
-                const statusEl = document.getElementById('placement-status');
-                if (isValid) { statusEl.innerText = '✓ VALID - Tekan F'; statusEl.style.color = '#00ff00'; }
-                else { statusEl.innerText = '✗ INVALID'; statusEl.style.color = '#ff0000'; }
+                const p = new THREE.Mesh(geo, mat);
+                p.position.copy(this.mesh.position);
+                scene.add(p);
+                this.trailParticles.push({
+                    mesh: p,
+                    life: 0.5,
+                    maxLife: 0.5
+                });
+            }
+            
+            checkDroneHit(drones) {
+                if (!this.alive) return null;
+                for (const drone of drones) {
+                    if (drone.destroyed) continue;
+                    if (this.mesh.position.distanceTo(drone.group.position) < 1.8) return drone;
+                }
+                return null;
+            }
+            
+            destroy() {
+                if (!this.alive) return;
+                this.alive = false;
+                scene.remove(this.mesh);
+                // Hapus trail particles
+                if (this.trailParticles) {
+                    this.trailParticles.forEach(p => scene.remove(p.mesh));
+                }
+            }
+        }
+
+        function shootWeapon() {
+            if (!controls.isLocked) return;
+            if (currentWeapon === 'arrow') {
+                if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
+                inventory.arrows--;
+                SoundManager.play('shoot_arrow');
+            } else if (currentWeapon === 'fire_arrow') {
+                if (inventory.fire_arrows <= 0) { showNotification("❌ Panah api habis!", true); return; }
+                inventory.fire_arrows--;
+                SoundManager.play('shoot_fire');
+            } else if (currentWeapon === 'stone') {
+                if (inventory.stones <= 0) { showNotification("❌ Batu habis!", true); return; }
+                inventory.stones--;
+                SoundManager.play('shoot_stone');
+            } else {
+                showNotification("⚠️ Pilih senjata (1/2/3)", true); return;
+            }
+            updateUI();
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            const startPos = camera.position.clone().add(dir.clone().multiplyScalar(1));
+            projectiles.push(new Projectile(currentWeapon, startPos, dir));
+            saveGame();
+        }
+
+        // ============ DRONE ENEMY SYSTEM (dengan Burn Effect) ============
+        class PatrolDrone {
+            constructor(spawnPos, patrolRadius = 40) {
+                this.group = new THREE.Group();
+                this.state = 'PATROL';
+                this.patrolRadius = patrolRadius;
+                this.patrolAngle = Math.random() * Math.PI * 2;
+                this.patrolSpeed = 0.3;
+                this.chaseSpeed = 5;
+                this.detectionRange = 25;
+                this.attackRange = 4;
+                this.damage = 10;
+                this.alertTimer = 0;
+                this.lastAttackTime = 0;
+                this.lostTargetTimer = 0;
+                
+                this.maxHp = 100;
+                this.hp = this.maxHp;
+                this.destroyed = false;
+                this.respawnTimer = 0;
+                this.homeSpawn = spawnPos.clone();
+                
+                // BURN EFFECT
+                this.burning = false;
+                this.burnTimer = 0;
+                this.burnDamageTimer = 0;
+                this.burnParticles = [];
+                
+                this.hpBarEl = document.createElement('div');
+                this.hpBarEl.className = 'drone-hp-bar';
+                this.hpBarEl.innerHTML = '<div class="drone-hp-fill"></div>';
+                document.body.appendChild(this.hpBarEl);
+                
+                this.burnBarEl = document.createElement('div');
+                this.burnBarEl.className = 'drone-burn-indicator';
+                this.burnBarEl.innerHTML = '<div class="drone-burn-fill"></div>';
+                document.body.appendChild(this.burnBarEl);
+                
+                this.buildDroneModel();
+                this.group.position.copy(spawnPos);
+                this.group.position.y = getTerrainHeight(spawnPos.x, spawnPos.z) + 8;
+                this.homePosition = this.group.position.clone();
+                scene.add(this.group);
             }
 
-            function startPlacementMode() {
-                if (isPlacingCampfire) return;
-                isPlacingCampfire = true;
-                campfirePreview = createCampfireMesh(true);
-                scene.add(campfirePreview);
-                const promptUI = document.getElementById('interaction-prompt');
-                promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan<br><span style="font-size:14px; color:#aaa">[X] Batal</span>';
-                promptUI.style.display = 'block';
-                document.getElementById('placement-status').style.display = 'block';
+            buildDroneModel() {
+                const bodyGeo = new THREE.BoxGeometry(1.5, 0.4, 1.5);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat); body.castShadow = true; this.group.add(body);
+
+                const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.5, 8);
+                const armMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+                const armPositions = [[0.9, 0, 0.9], [-0.9, 0, 0.9], [0.9, 0, -0.9], [-0.9, 0, -0.9]];
+                this.rotors = [];
+                armPositions.forEach(pos => {
+                    const arm = new THREE.Mesh(armGeo, armMat);
+                    arm.rotation.z = Math.PI / 2;
+                    arm.position.set(pos[0]/2, 0, pos[2]/2);
+                    arm.castShadow = true;
+                    this.group.add(arm);
+                    const rotorGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.05, 16);
+                    const rotorMat = new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.5 });
+                    const rotor = new THREE.Mesh(rotorGeo, rotorMat);
+                    rotor.position.set(pos[0], 0.1, pos[2]);
+                    this.rotors.push(rotor); this.group.add(rotor);
+                });
+
+                const lightGeo = new THREE.SphereGeometry(0.15, 8, 8);
+                this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+                this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
+                this.indicator.position.set(0, -0.25, 0); this.group.add(this.indicator);
+
+                this.spotlight = new THREE.SpotLight(0xffffaa, 2, 30, Math.PI / 6, 0.5, 1);
+                this.spotlight.position.set(0, -0.3, 0); this.spotlight.target.position.set(0, -10, 0);
+                this.group.add(this.spotlight); this.group.add(this.spotlight.target);
+
+                const beamGeo = new THREE.ConeGeometry(4, 15, 16, 1, true);
+                const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffaa, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+                this.beam = new THREE.Mesh(beamGeo, beamMat);
+                this.beam.position.set(0, -8, 0); this.beam.rotation.x = Math.PI; this.group.add(this.beam);
             }
 
-            function cancelPlacement() {
-                if (!isPlacingCampfire) return;
-                if (campfirePreview) { scene.remove(campfirePreview); campfirePreview = null; }
-                isPlacingCampfire = false;
-                document.getElementById('interaction-prompt').style.display = 'none';
-                document.getElementById('placement-status').style.display = 'none';
+            applyBurn(duration, damagePerSec) {
+                this.burning = true;
+                this.burnTimer = duration;
+                this.burnDamagePerSec = damagePerSec;
+                this.burnDamageTimer = 0;
+                SoundManager.play('burn');
+                showNotification("🔥 Drone terbakar!");
             }
 
-            function placeCampfire() {
-                if (!campfirePreview || !placementValid) {
-                    showNotification("❌ Posisi tidak valid!", true);
+            takeDamage(amount) {
+                if (this.destroyed) return;
+                this.hp = Math.max(0, this.hp - amount);
+                SoundManager.play('hit');
+                this.hpBarEl.style.display = 'block';
+                if (this.hp <= 0) this.destroyDrone();
+            }
+
+            destroyDrone() {
+                this.destroyed = true;
+                this.respawnTimer = 60;
+                this.group.visible = false;
+                this.hpBarEl.style.display = 'none';
+                this.burnBarEl.style.display = 'none';
+                showNotification("💥 DRONE HANCUR!");
+                
+                if (quest.active && quest.type === 'destroy_drones' && !quest.completed) {
+                    quest.current++;
+                    updateQuestUI();
+                    if (quest.current >= quest.target) {
+                        quest.completed = true;
+                        showNotification("🎉 MISI SELESAI!", false);
+                        playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA;
+                        playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                        updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                        saveGame();
+                    }
+                }
+            }
+
+            updateBurn(delta) {
+                if (!this.burning || this.destroyed) return;
+                
+                this.burnTimer -= delta;
+                this.burnDamageTimer += delta;
+                
+                // Damage per detik
+                if (this.burnDamageTimer >= 1.0) {
+                    this.burnDamageTimer = 0;
+                    this.takeDamage(this.burnDamagePerSec);
+                }
+                
+                // Efek visual: partikel api di sekeliling drone
+                if (Math.random() < 0.3) {
+                    const geo = new THREE.SphereGeometry(0.15, 6, 6);
+                    const mat = new THREE.MeshBasicMaterial({ 
+                        color: Math.random() > 0.5 ? 0xff4400 : 0xffaa00,
+                        transparent: true, opacity: 0.8
+                    });
+                    const p = new THREE.Mesh(geo, mat);
+                    p.position.set(
+                        this.group.position.x + (Math.random() - 0.5) * 2,
+                        this.group.position.y + (Math.random() - 0.5) * 1,
+                        this.group.position.z + (Math.random() - 0.5) * 2
+                    );
+                    p.userData.life = 0.8;
+                    p.userData.vy = 1 + Math.random();
+                    scene.add(p);
+                    this.burnParticles.push(p);
+                }
+                
+                // Update partikel
+                for (let i = this.burnParticles.length - 1; i >= 0; i--) {
+                    const p = this.burnParticles[i];
+                    p.userData.life -= delta;
+                    if (p.userData.life <= 0) {
+                        scene.remove(p);
+                        this.burnParticles.splice(i, 1);
+                    } else {
+                        p.position.y += p.userData.vy * delta;
+                        p.material.opacity = p.userData.life / 0.8;
+                        p.scale.setScalar(p.userData.life / 0.8);
+                    }
+                }
+                
+                // Update burn bar
+                this.burnBarEl.style.display = 'block';
+                this.burnBarEl.querySelector('.drone-burn-fill').style.width = (this.burnTimer / 3 * 100) + '%';
+                
+                if (this.burnTimer <= 0) {
+                    this.burning = false;
+                    this.burnBarEl.style.display = 'none';
+                    // Hapus semua partikel
+                    this.burnParticles.forEach(p => scene.remove(p));
+                    this.burnParticles = [];
+                }
+            }
+
+            update(delta, playerPos, timeOfDay) {
+                this.updateBurn(delta);
+                
+                if (this.destroyed) {
+                    this.respawnTimer -= delta;
+                    if (this.respawnTimer <= 0) {
+                        this.destroyed = false; this.hp = this.maxHp;
+                        this.group.position.copy(this.homeSpawn);
+                        this.group.position.y = getTerrainHeight(this.homeSpawn.x, this.homeSpawn.z) + 8;
+                        this.homePosition = this.group.position.clone();
+                        this.group.visible = true; this.state = 'PATROL';
+                    }
                     return;
                 }
-                const pos = campfirePreview.position.clone();
-                const campfire = createCampfireMesh(false);
-                campfire.position.copy(pos);
-                campfireGroup.add(campfire);
-                campfires.push({ x: pos.x, y: pos.y, z: pos.z });
-                scene.remove(campfirePreview);
-                campfirePreview = null;
-                isPlacingCampfire = false;
-                document.getElementById('interaction-prompt').style.display = 'none';
-                document.getElementById('placement-status').style.display = 'none';
-                showNotification("🔥 Api Unggun Dibangun!");
-                SoundManager.play('craft');
-                saveGame();
-            }
 
-            // ============ PROJECTILE SYSTEM ============
-            const projectiles = [];
-            class Projectile {
-                constructor(type, startPos, direction) {
-                    this.type = type;
-                    this.alive = true;
-                    this.age = 0;
-                    this.maxAge = type === 'arrow' ? 4 : 2;
-                    
-                    if (type === 'arrow') {
-                        const geo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 6);
-                        const mat = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
-                        this.mesh = new THREE.Mesh(geo, mat);
-                        const tipGeo = new THREE.ConeGeometry(0.1, 0.2, 6);
-                        const tipMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa, metalness: 0.8 });
-                        const tip = new THREE.Mesh(tipGeo, tipMat);
-                        tip.position.y = 0.5;
-                        this.mesh.add(tip);
-                        this.damage = 25; this.speed = 50; this.gravity = 9.8;
-                    } else {
-                        const geo = new THREE.DodecahedronGeometry(0.2, 0);
-                        const mat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true });
-                        this.mesh = new THREE.Mesh(geo, mat);
-                        this.damage = 10; this.speed = 25; this.gravity = 15;
-                    }
-                    this.mesh.position.copy(startPos);
-                    this.mesh.castShadow = true;
-                    this.velocity = direction.clone().multiplyScalar(this.speed);
-                    this.velocity.y += 5;
-                    scene.add(this.mesh);
-                }
-                update(delta) {
-                    if (!this.alive) return;
-                    this.age += delta;
-                    if (this.age > this.maxAge) { this.destroy(); return; }
-                    this.velocity.y -= this.gravity * delta;
-                    const moveVec = this.velocity.clone().multiplyScalar(delta);
-                    this.mesh.position.add(moveVec);
-                    if (this.mesh.position.y < getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.2 || this.mesh.position.y < waterLevel) {
-                        this.destroy();
-                    }
-                }
-                checkDroneHit(drones) {
-                    if (!this.alive) return null;
-                    for (const drone of drones) {
-                        if (drone.destroyed) continue;
-                        if (this.mesh.position.distanceTo(drone.group.position) < 1.8) return drone;
-                    }
-                    return null;
-                }
-                destroy() {
-                    if (!this.alive) return;
-                    this.alive = false;
-                    scene.remove(this.mesh);
-                }
-            }
+                this.rotors.forEach(rotor => { rotor.rotation.y += delta * 30; });
+                const distToPlayer = this.group.position.distanceTo(playerPos);
+                const isNight = timeOfDay < 6 || timeOfDay > 19;
+                
+                switch(this.state) {
+                    case 'PATROL':
+                        this.patrolAngle += this.patrolSpeed * delta;
+                        const targetX = this.homePosition.x + Math.cos(this.patrolAngle) * this.patrolRadius;
+                        const targetZ = this.homePosition.z + Math.sin(this.patrolAngle) * this.patrolRadius;
+                        const targetY = getTerrainHeight(targetX, targetZ) + 8;
+                        this.group.position.x += (targetX - this.group.position.x) * delta;
+                        this.group.position.z += (targetZ - this.group.position.z) * delta;
+                        this.group.position.y += (targetY - this.group.position.y) * delta;
+                        this.indicatorMat.color.setHex(0x00ff00);
 
-            function shootWeapon() {
-                if (!controls.isLocked) return;
-                if (currentWeapon === 'arrow') {
-                    if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
-                    inventory.arrows--;
-                    SoundManager.play('shoot_arrow');
-                } else if (currentWeapon === 'stone') {
-                    if (inventory.stones <= 0) { showNotification("❌ Batu habis!", true); return; }
-                    inventory.stones--;
-                    SoundManager.play('shoot_stone');
-                } else {
-                    showNotification("⚠️ Pilih senjata (1/2)", true); return;
-                }
-                updateUI();
-                const dir = new THREE.Vector3();
-                camera.getWorldDirection(dir);
-                const startPos = camera.position.clone().add(dir.clone().multiplyScalar(1));
-                projectiles.push(new Projectile(currentWeapon, startPos, dir));
-                saveGame();
-            }
-
-            // ============ DRONE ENEMY SYSTEM ============
-            class PatrolDrone {
-                constructor(spawnPos, patrolRadius = 40) {
-                    this.group = new THREE.Group();
-                    this.state = 'PATROL';
-                    this.patrolRadius = patrolRadius;
-                    this.patrolAngle = Math.random() * Math.PI * 2;
-                    this.patrolSpeed = 0.3;
-                    this.chaseSpeed = 5;
-                    this.detectionRange = 25;
-                    this.attackRange = 4;
-                    this.damage = 10;
-                    this.alertTimer = 0;
-                    this.lastAttackTime = 0;
-                    this.lostTargetTimer = 0;
-                    
-                    this.maxHp = 100;
-                    this.hp = this.maxHp;
-                    this.destroyed = false;
-                    this.respawnTimer = 0;
-                    this.homeSpawn = spawnPos.clone();
-                    
-                    this.hpBarEl = document.createElement('div');
-                    this.hpBarEl.className = 'drone-hp-bar';
-                    this.hpBarEl.innerHTML = '<div class="drone-hp-fill"></div>';
-                    document.body.appendChild(this.hpBarEl);
-                    
-                    this.buildDroneModel();
-                    this.group.position.copy(spawnPos);
-                    this.group.position.y = getTerrainHeight(spawnPos.x, spawnPos.z) + 8;
-                    this.homePosition = this.group.position.clone();
-                    scene.add(this.group);
-                }
-
-                buildDroneModel() {
-                    const bodyGeo = new THREE.BoxGeometry(1.5, 0.4, 1.5);
-                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });
-                    const body = new THREE.Mesh(bodyGeo, bodyMat); body.castShadow = true; this.group.add(body);
-
-                    const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.5, 8);
-                    const armMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-                    const armPositions = [[0.9, 0, 0.9], [-0.9, 0, 0.9], [0.9, 0, -0.9], [-0.9, 0, -0.9]];
-                    this.rotors = [];
-                    armPositions.forEach(pos => {
-                        const arm = new THREE.Mesh(armGeo, armMat);
-                        arm.rotation.z = Math.PI / 2;
-                        arm.position.set(pos[0]/2, 0, pos[2]/2);
-                        arm.castShadow = true;
-                        this.group.add(arm);
-                        const rotorGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.05, 16);
-                        const rotorMat = new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.5 });
-                        const rotor = new THREE.Mesh(rotorGeo, rotorMat);
-                        rotor.position.set(pos[0], 0.1, pos[2]);
-                        this.rotors.push(rotor); this.group.add(rotor);
-                    });
-
-                    const lightGeo = new THREE.SphereGeometry(0.15, 8, 8);
-                    this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-                    this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
-                    this.indicator.position.set(0, -0.25, 0); this.group.add(this.indicator);
-
-                    this.spotlight = new THREE.SpotLight(0xffffaa, 2, 30, Math.PI / 6, 0.5, 1);
-                    this.spotlight.position.set(0, -0.3, 0); this.spotlight.target.position.set(0, -10, 0);
-                    this.group.add(this.spotlight); this.group.add(this.spotlight.target);
-
-                    const beamGeo = new THREE.ConeGeometry(4, 15, 16, 1, true);
-                    const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffaa, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
-                    this.beam = new THREE.Mesh(beamGeo, beamMat);
-                    this.beam.position.set(0, -8, 0); this.beam.rotation.x = Math.PI; this.group.add(this.beam);
-                }
-
-                takeDamage(amount) {
-                    if (this.destroyed) return;
-                    this.hp = Math.max(0, this.hp - amount);
-                    SoundManager.play('hit');
-                    this.hpBarEl.style.display = 'block';
-                    if (this.hp <= 0) this.destroyDrone();
-                }
-
-                destroyDrone() {
-                    this.destroyed = true;
-                    this.respawnTimer = 60;
-                    this.group.visible = false;
-                    this.hpBarEl.style.display = 'none';
-                    showNotification("💥 DRONE HANCUR!");
-                    
-                    if (quest.active && quest.type === 'destroy_drones' && !quest.completed) {
-                        quest.current++;
-                        updateQuestUI();
-                        if (quest.current >= quest.target) {
-                            quest.completed = true;
-                            showNotification("🎉 MISI SELESAI!", false);
-                            playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA;
-                            playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
-                            updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-                            saveGame();
+                        const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
+                        if (distToPlayer < detectRange) {
+                            this.state = 'ALERT'; this.alertTimer = 1.5;
+                            showNotification("⚠️ Drone mendeteksi!", true);
                         }
-                    }
-                }
-
-                update(delta, playerPos, timeOfDay) {
-                    if (this.destroyed) {
-                        this.respawnTimer -= delta;
-                        if (this.respawnTimer <= 0) {
-                            this.destroyed = false; this.hp = this.maxHp;
-                            this.group.position.copy(this.homeSpawn);
-                            this.group.position.y = getTerrainHeight(this.homeSpawn.x, this.homeSpawn.z) + 8;
-                            this.homePosition = this.group.position.clone();
-                            this.group.visible = true; this.state = 'PATROL';
+                        break;
+                    case 'ALERT':
+                        this.indicatorMat.color.setHex(0xffff00);
+                        this.alertTimer -= delta;
+                        if (this.alertTimer <= 0) { this.state = 'CHASE'; showNotification("🚨 DRONE MENGEJAR!", true); }
+                        break;
+                    case 'CHASE':
+                        const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        const chaseY = getTerrainHeight(playerPos.x, playerPos.z) + 5;
+                        this.group.position.x += dir.x * this.chaseSpeed * delta;
+                        this.group.position.z += dir.z * this.chaseSpeed * delta;
+                        this.group.position.y += (chaseY - this.group.position.y) * delta * 2;
+                        this.indicatorMat.color.setHex(0xff0000);
+                        if (distToPlayer < this.attackRange) this.state = 'ATTACK';
+                        if (distToPlayer > this.detectionRange * 2.5) {
+                            this.state = 'LOST'; this.lostTargetTimer = 3;
                         }
-                        return;
-                    }
-
-                    this.rotors.forEach(rotor => { rotor.rotation.y += delta * 30; });
-                    const distToPlayer = this.group.position.distanceTo(playerPos);
-                    const isNight = timeOfDay < 6 || timeOfDay > 19;
-                    
-                    switch(this.state) {
-                        case 'PATROL':
-                            this.patrolAngle += this.patrolSpeed * delta;
-                            const targetX = this.homePosition.x + Math.cos(this.patrolAngle) * this.patrolRadius;
-                            const targetZ = this.homePosition.z + Math.sin(this.patrolAngle) * this.patrolRadius;
-                            const targetY = getTerrainHeight(targetX, targetZ) + 8;
-                            this.group.position.x += (targetX - this.group.position.x) * delta;
-                            this.group.position.z += (targetZ - this.group.position.z) * delta;
-                            this.group.position.y += (targetY - this.group.position.y) * delta;
-                            this.indicatorMat.color.setHex(0x00ff00);
-
-                            const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
-                            if (distToPlayer < detectRange) {
-                                this.state = 'ALERT'; this.alertTimer = 1.5;
-                                showNotification("⚠️ Drone mendeteksi!", true);
-                            }
-                            break;
-                        case 'ALERT':
-                            this.indicatorMat.color.setHex(0xffff00);
-                            this.alertTimer -= delta;
-                            if (this.alertTimer <= 0) { this.state = 'CHASE'; showNotification("🚨 DRONE MENGEJAR!", true); }
-                            break;
-                        case 'CHASE':
-                            const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
-                            const chaseY = getTerrainHeight(playerPos.x, playerPos.z) + 5;
-                            this.group.position.x += dir.x * this.chaseSpeed * delta;
-                            this.group.position.z += dir.z * this.chaseSpeed * delta;
-                            this.group.position.y += (chaseY - this.group.position.y) * delta * 2;
-                            this.indicatorMat.color.setHex(0xff0000);
-                            if (distToPlayer < this.attackRange) this.state = 'ATTACK';
-                            if (distToPlayer > this.detectionRange * 2.5) {
-                                this.state = 'LOST'; this.lostTargetTimer = 3;
-                            }
-                            break;
-                        case 'LOST':
-                            const dirHome = new THREE.Vector3().subVectors(this.homePosition, this.group.position).normalize();
-                            this.group.position.x += dirHome.x * 3 * delta; this.group.position.z += dirHome.z * 3 * delta;
-                            this.indicatorMat.color.setHex(0xffaa00);
-                            this.lostTargetTimer -= delta;
-                            if (this.lostTargetTimer <= 0) this.state = 'PATROL';
-                            break;
-                        case 'ATTACK':
-                            const now = performance.now();
-                            if (now - this.lastAttackTime > 1000) { this.lastAttackTime = now; takeDamage(this.damage); }
-                            const dirAttack = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
-                            this.group.position.x += dirAttack.x * 2 * delta; this.group.position.z += dirAttack.z * 2 * delta;
-                            if (distToPlayer > this.attackRange * 1.5) this.state = 'CHASE';
-                            break;
-                    }
-                    
-                    if (this.hp < this.maxHp && !this.destroyed) {
-                        const screenPos = this.group.position.clone(); screenPos.y += 2; screenPos.project(camera);
-                        const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
-                        const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
-                        if (screenPos.z < 1) {
-                            this.hpBarEl.style.display = 'block'; this.hpBarEl.style.left = (x - 30) + 'px'; this.hpBarEl.style.top = y + 'px';
-                            this.hpBarEl.querySelector('.drone-hp-fill').style.width = (this.hp / this.maxHp * 100) + '%';
-                        } else { this.hpBarEl.style.display = 'none'; }
+                        break;
+                    case 'LOST':
+                        const dirHome = new THREE.Vector3().subVectors(this.homePosition, this.group.position).normalize();
+                        this.group.position.x += dirHome.x * 3 * delta; this.group.position.z += dirHome.z * 3 * delta;
+                        this.indicatorMat.color.setHex(0xffaa00);
+                        this.lostTargetTimer -= delta;
+                        if (this.lostTargetTimer <= 0) this.state = 'PATROL';
+                        break;
+                    case 'ATTACK':
+                        const now = performance.now();
+                        if (now - this.lastAttackTime > 1000) { this.lastAttackTime = now; takeDamage(this.damage); }
+                        const dirAttack = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        this.group.position.x += dirAttack.x * 2 * delta; this.group.position.z += dirAttack.z * 2 * delta;
+                        if (distToPlayer > this.attackRange * 1.5) this.state = 'CHASE';
+                        break;
+                }
+                
+                if (this.hp < this.maxHp && !this.destroyed) {
+                    const screenPos = this.group.position.clone(); screenPos.y += 2; screenPos.project(camera);
+                    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                    if (screenPos.z < 1) {
+                        this.hpBarEl.style.display = 'block'; this.hpBarEl.style.left = (x - 30) + 'px'; this.hpBarEl.style.top = y + 'px';
+                        this.hpBarEl.querySelector('.drone-hp-fill').style.width = (this.hp / this.maxHp * 100) + '%';
+                        this.burnBarEl.style.left = (x - 30) + 'px'; this.burnBarEl.style.top = (y + 10) + 'px';
+                    } else { 
+                        this.hpBarEl.style.display = 'none'; 
+                        this.burnBarEl.style.display = 'none';
                     }
                 }
             }
+        }
 
-            function takeDamage(amount) {
-                playerHealth = Math.max(0, playerHealth - amount);
-                updateHealthUI();
-                const overlay = document.getElementById('damage-overlay');
-                overlay.style.opacity = 1;
-                setTimeout(() => { overlay.style.opacity = 0; }, 300);
-                showNotification(`💥 -${amount} HP!`, true);
-                if (playerHealth <= 0) gameOver();
-            }
+        function takeDamage(amount) {
+            playerHealth = Math.max(0, playerHealth - amount);
+            updateHealthUI();
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = 1;
+            setTimeout(() => { overlay.style.opacity = 0; }, 300);
+            showNotification(`💥 -${amount} HP!`, true);
+            if (playerHealth <= 0) gameOver();
+        }
 
-            function gameOver() {
-                isGameOver = true;
-                try { controls.unlock(); } catch(e) {}
-                const blocker = document.getElementById('blocker');
-                blocker.innerHTML = `
-                    <h1 style="color: #ff0000;">☠️ GAME OVER</h1>
-                    <p>Anda telah meninggal.</p>
-                    <p style="color: #ffff00; margin-top: 20px;">Klik untuk respawn</p>
-                `;
-                blocker.style.display = 'flex';
-            }
-
-            function updateHealthUI() { 
-                document.getElementById('health-text').innerText = Math.round(playerHealth); 
-                document.getElementById('health-bar').style.width = (playerHealth / MAX_HEALTH * 100) + '%'; 
-            }
-            function updateStaminaUI() { 
-                document.getElementById('stamina-text').innerText = Math.round(playerStamina); 
-                document.getElementById('stamina-bar').style.width = (playerStamina / MAX_STAMINA * 100) + '%';
-            }
-            function updateSurvivalUI() {
-                document.getElementById('hunger-text').innerText = Math.round(playerHunger);
-                document.getElementById('hunger-bar').style.width = (playerHunger / MAX_HUNGER * 100) + '%';
-                document.getElementById('thirst-text').innerText = Math.round(playerThirst);
-                document.getElementById('thirst-bar').style.width = (playerThirst / MAX_THIRST * 100) + '%';
-            }
-            function updateQuestUI() {
-                document.getElementById('quest-title').innerText = quest.title;
-                document.getElementById('quest-desc').innerText = quest.description;
-                const progressEl = document.getElementById('quest-progress');
-                if (quest.completed) { progressEl.innerText = "✅ SELESAI"; progressEl.style.color = "#00ff00"; }
-                else { progressEl.innerText = `${quest.current} / ${quest.target}`; progressEl.style.color = "#ffff00"; }
-            }
-
-            function checkNearCampfire() {
-                let near = false;
-                campfires.forEach(cf => {
-                    if (camera.position.distanceTo(new THREE.Vector3(cf.x, cf.y, cf.z)) < CAMPFIRE_RADIUS) near = true;
-                });
-                isNearCampfire = near;
-                document.getElementById('campfire-bonus').style.display = near ? 'block' : 'none';
-            }
-
-            const drones = [];
-            drones.push(new PatrolDrone(new THREE.Vector3(30, 0, 30), 35));
-            drones.push(new PatrolDrone(new THREE.Vector3(-40, 0, -20), 30));
-
-            // ============ KONTROL PEMAIN ============
-            debugLog('Membuat PointerLockControls...');
-            const controls = new PointerLockControls(camera, document.body);
+        function gameOver() {
+            isGameOver = true;
+            try { controls.unlock(); } catch(e) {}
             const blocker = document.getElementById('blocker');
-            const promptUI = document.getElementById('interaction-prompt');
+            blocker.innerHTML = `
+                <h1 style="color: #ff0000;">☠️ GAME OVER</h1>
+                <p>Anda telah meninggal.</p>
+                <p style="color: #ffff00; margin-top: 20px;">Klik untuk respawn</p>
+            `;
+            blocker.style.display = 'flex';
+        }
 
-            // SINGLE EVENT LISTENER - PALING STABIL
-            blocker.addEventListener('click', () => {
-                debugLog('Blocker diklik');
-                try {
-                    SoundManager.init();
-                } catch(e) {
-                    debugLog('Audio init error: ' + e.message);
+        function updateHealthUI() { 
+            document.getElementById('health-text').innerText = Math.round(playerHealth); 
+            document.getElementById('health-bar').style.width = (playerHealth / MAX_HEALTH * 100) + '%'; 
+        }
+        function updateStaminaUI() { 
+            document.getElementById('stamina-text').innerText = Math.round(playerStamina); 
+            document.getElementById('stamina-bar').style.width = (playerStamina / MAX_STAMINA * 100) + '%';
+        }
+        function updateSurvivalUI() {
+            document.getElementById('hunger-text').innerText = Math.round(playerHunger);
+            document.getElementById('hunger-bar').style.width = (playerHunger / MAX_HUNGER * 100) + '%';
+            document.getElementById('thirst-text').innerText = Math.round(playerThirst);
+            document.getElementById('thirst-bar').style.width = (playerThirst / MAX_THIRST * 100) + '%';
+        }
+        function updateQuestUI() {
+            document.getElementById('quest-title').innerText = quest.title;
+            document.getElementById('quest-desc').innerText = quest.description;
+            const progressEl = document.getElementById('quest-progress');
+            if (quest.completed) { progressEl.innerText = "✅ SELESAI"; progressEl.style.color = "#00ff00"; }
+            else { progressEl.innerText = `${quest.current} / ${quest.target}`; progressEl.style.color = "#ffff00"; }
+        }
+
+        function checkNearCampfire() {
+            let near = false;
+            campfires.forEach(cf => {
+                if (camera.position.distanceTo(new THREE.Vector3(cf.x, cf.y, cf.z)) < CAMPFIRE_RADIUS) near = true;
+            });
+            isNearCampfire = near;
+            document.getElementById('campfire-bonus').style.display = near ? 'block' : 'none';
+        }
+
+        const drones = [];
+        drones.push(new PatrolDrone(new THREE.Vector3(30, 0, 30), 35));
+        drones.push(new PatrolDrone(new THREE.Vector3(-40, 0, -20), 30));
+
+        // ============ KONTROL PEMAIN ============
+        const controls = new PointerLockControls(camera, document.body);
+        const blocker = document.getElementById('blocker');
+        const promptUI = document.getElementById('interaction-prompt');
+
+        blocker.addEventListener('click', () => {
+            try { SoundManager.init(); } catch(e) {}
+            
+            if (isGameOver) {
+                isGameOver = false;
+                playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; 
+                playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
+                blocker.innerHTML = `<h1>KLIK UNTUK MULAI</h1><p id="load-status" style="color: #ffff00; margin-top: 20px;">Siap!</p>`;
+            }
+            
+            try { controls.lock(); } catch(e) {}
+        });
+
+        controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
+        controls.addEventListener('unlock', () => { if (!isGameOver) blocker.style.display = 'flex'; });
+
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let canJump = false;
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const playerHeight = 2.5;
+        let lastFootstepTime = 0;
+
+        document.addEventListener('keydown', (e) => {
+            try {
+                if (e.code === 'KeyW') moveForward = true;
+                if (e.code === 'KeyA') moveLeft = true;
+                if (e.code === 'KeyS') moveBackward = true;
+                if (e.code === 'KeyD') moveRight = true;
+                if (e.code === 'Space' && canJump && playerStamina > 10) { 
+                    velocity.y += 8; canJump = false; playerStamina = Math.max(0, playerStamina - 5);
+                }
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                    isSprinting = true;
+                    document.getElementById('sprint-indicator').style.display = 'block';
                 }
                 
-                if (isGameOver) {
-                    isGameOver = false;
-                    playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; 
-                    playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
-                    updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-                    camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
-                    blocker.innerHTML = `<h1>KLIK UNTUK MULAI</h1><p id="load-status" style="color: #ffff00; margin-top: 20px;">Siap!</p>`;
-                }
-                
-                try {
-                    controls.lock();
-                    debugLog('controls.lock() dipanggil');
-                } catch(e) {
-                    debugLog('❌ controls.lock() error: ' + e.message);
-                }
-            });
-
-            controls.addEventListener('lock', () => {
-                debugLog('✅ Controls LOCKED - game aktif');
-                blocker.style.display = 'none';
-            });
-
-            controls.addEventListener('unlock', () => {
-                debugLog('Controls UNLOCKED');
-                if (!isGameOver) {
-                    blocker.style.display = 'flex';
-                }
-            });
-
-            let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
-            let canJump = false;
-            const velocity = new THREE.Vector3();
-            const direction = new THREE.Vector3();
-            const playerHeight = 2.5;
-            let lastFootstepTime = 0;
-
-            document.addEventListener('keydown', (e) => {
-                try {
-                    if (e.code === 'KeyW') moveForward = true;
-                    if (e.code === 'KeyA') moveLeft = true;
-                    if (e.code === 'KeyS') moveBackward = true;
-                    if (e.code === 'KeyD') moveRight = true;
-                    if (e.code === 'Space' && canJump && playerStamina > 10) { 
-                        velocity.y += 8; canJump = false; playerStamina = Math.max(0, playerStamina - 5);
-                    }
-                    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-                        isSprinting = true;
-                        document.getElementById('sprint-indicator').style.display = 'block';
-                    }
+                if (e.code === 'KeyE' && controls.isLocked && !isPlacingCampfire) {
+                    const isNearWaterCheck = camera.position.y <= waterLevel + 2.6;
                     
-                    if (e.code === 'KeyE' && controls.isLocked && !isPlacingCampfire) {
+                    if (isNearWaterCheck) {
+                        playerThirst = Math.min(MAX_THIRST, playerThirst + 25);
+                        SoundManager.play('drink');
+                        showNotification("💧 Segar!");
+                        updateSurvivalUI();
+                    } else if (targetBerry !== null) {
+                        berryGroup.remove(targetBerry);
+                        const idx = berryMeshes.indexOf(targetBerry);
+                        if (idx > -1) berryMeshes.splice(idx, 1);
+                        playerHunger = Math.min(MAX_HUNGER, playerHunger + 20);
+                        playerThirst = Math.min(MAX_THIRST, playerThirst + 5);
+                        SoundManager.play('eat');
+                        showNotification("🍖 Enak!");
+                        updateSurvivalUI();
+                        targetBerry = null;
+                        promptUI.style.display = 'none';
+                    } else if (targetInstanceId !== null) {
+                        chopTree(targetInstanceId);
+                    } else if (targetStone !== null) {
+                        pickupStone(targetStone);
+                    }
+                }
+                
+                if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 5) { 
+                        inventory.wood -= 5; updateUI(); startPlacementMode(); 
+                        SoundManager.play('craft');
+                    } else { 
+                        showNotification(`Butuh 5 kayu!`, true); 
+                    }
+                }
+                if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) placeCampfire();
+                if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) cancelPlacement();
+                
+                if (e.code === 'Digit1' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'stone'; updateWeaponHUD(); }
+                if (e.code === 'Digit2' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'arrow'; updateWeaponHUD(); }
+                if (e.code === 'Digit3' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'fire_arrow'; updateWeaponHUD(); }
+                
+                // CRAFT PANAH API (G) - butuh 1 kayu + 1 panah
+                if (e.code === 'KeyG' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 1 && (inventory.arrows || 0) >= 1) {
+                        inventory.wood -= 1;
+                        inventory.arrows -= 1;
+                        inventory.fire_arrows = (inventory.fire_arrows || 0) + 1;
+                        updateUI();
+                        showNotification("🔥 +1 Panah Api di-craft!");
+                        SoundManager.play('craft');
+                        saveGame();
+                    } else {
+                        showNotification(`Butuh 1 Kayu + 1 Panah!`, true);
+                    }
+                }
+                
+                if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 2) {
+                        inventory.wood -= 2; inventory.arrows = (inventory.arrows || 0) + 3;
+                        updateUI(); showNotification("🏹 +3 Panah!"); 
+                        SoundManager.play('craft');
+                        saveGame();
+                    }
+                }
+                if (e.code === 'KeyQ' && controls.isLocked) saveGame();
+                if (e.code === 'KeyR' && controls.isLocked) loadGame();
+            } catch(e) {}
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            try {
+                if (e.button === 0 && controls.isLocked && !isPlacingCampfire) shootWeapon();
+            } catch(e) {}
+        });
+
+        document.addEventListener('keyup', (e) => {
+            try {
+                if (e.code === 'KeyW') moveForward = false;
+                if (e.code === 'KeyA') moveLeft = false;
+                if (e.code === 'KeyS') moveBackward = false;
+                if (e.code === 'KeyD') moveRight = false;
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                    isSprinting = false;
+                    document.getElementById('sprint-indicator').style.display = 'none';
+                }
+            } catch(e) {}
+        });
+
+        function chopTree(instanceId) {
+            dummy.matrix.identity(); treeMesh.setMatrixAt(instanceId, dummy.matrix); treeMesh.instanceMatrix.needsUpdate = true;
+            choppedTrees.add(instanceId); inventory.wood += 1; updateUI();
+            SoundManager.play('chop');
+            showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
+            targetInstanceId = null; promptUI.style.display = 'none'; saveGame();
+        }
+
+        function pickupStone(stone) {
+            stoneGroup.remove(stone);
+            const idx = stoneMeshes.indexOf(stone); if (idx > -1) stoneMeshes.splice(idx, 1);
+            inventory.stones = (inventory.stones || 0) + 1; updateUI();
+            showNotification(`+1 Batu! (Total: ${inventory.stones})`);
+            targetStone = null; promptUI.style.display = 'none';
+            saveGame();
+        }
+
+        // ============ DAY/NIGHT ============
+        let timeOfDay = 8.0;
+        const timeSpeed = 0.15;
+        const skyColors = { night: new THREE.Color(0x0a0a2e), dawn: new THREE.Color(0xff8c42), day: new THREE.Color(0x87CEEB), dusk: new THREE.Color(0xff6b6b) };
+
+        function getSkyColor(time) {
+            if (time < 5) return skyColors.night;
+            if (time < 7) return skyColors.night.clone().lerp(skyColors.dawn, (time - 5) / 2);
+            if (time < 9) return skyColors.dawn.clone().lerp(skyColors.day, (time - 7) / 2);
+            if (time < 17) return skyColors.day;
+            if (time < 19) return skyColors.day.clone().lerp(skyColors.dusk, (time - 17) / 2);
+            if (time < 21) return skyColors.dusk.clone().lerp(skyColors.night, (time - 19) / 2);
+            return skyColors.night;
+        }
+        function getTimePeriod(time) {
+            if (time < 5) return "Tengah Malam"; if (time < 7) return "Subuh";
+            if (time < 11) return "Pagi"; if (time < 14) return "Siang";
+            if (time < 17) return "Sore"; if (time < 19) return "Senja";
+            if (time < 21) return "Maghrib"; return "Malam";
+        }
+        function formatTime(time) {
+            const h = Math.floor(time) % 24, m = Math.floor((time - Math.floor(time)) * 60);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+
+        scene.fog = new THREE.Fog(skyColors.day, 30, 180);
+        scene.background = skyColors.day.clone();
+
+        // ============ UI & SAVE/LOAD ============
+        function updateUI() {
+            document.getElementById('inv-wood').innerText = inventory.wood || 0;
+            document.getElementById('inv-arrows').innerText = inventory.arrows || 0;
+            document.getElementById('inv-fire').innerText = inventory.fire_arrows || 0;
+            document.getElementById('inv-stones').innerText = inventory.stones || 0;
+            updateWeaponHUD();
+        }
+        function updateWeaponHUD() {
+            const nameEl = document.getElementById('weapon-name'); const ammoEl = document.getElementById('weapon-ammo');
+            if (currentWeapon === 'arrow') { nameEl.innerText = '🏹 Panah'; ammoEl.innerText = `× ${inventory.arrows || 0}`; }
+            else if (currentWeapon === 'fire_arrow') { nameEl.innerText = '🔥 Panah Api'; ammoEl.innerText = `× ${inventory.fire_arrows || 0}`; }
+            else if (currentWeapon === 'stone') { nameEl.innerText = '🪨 Batu'; ammoEl.innerText = `× ${inventory.stones || 0}`; }
+            else { nameEl.innerText = '👊 Tangan Kosong'; ammoEl.innerText = '-'; }
+        }
+        function showNotification(text, isError = false) {
+            const notif = document.getElementById('notification');
+            notif.innerText = text;
+            notif.style.background = isError ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 255, 0, 0.2)';
+            notif.style.color = isError ? '#ff4444' : '#00ff00';
+            notif.style.borderColor = isError ? '#ff4444' : '#00ff00';
+            notif.style.opacity = 1;
+            setTimeout(() => { notif.style.opacity = 0; }, 3000);
+        }
+
+        async function saveGame() {
+            if (!supabase) return;
+            try {
+                const saveData = {
+                    player_id: playerId, pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
+                    time_of_day: timeOfDay, inventory: inventory, chopped_trees: Array.from(choppedTrees),
+                    campfires: campfires, health: playerHealth, stamina: playerStamina,
+                    hunger: playerHunger, thirst: playerThirst, quest: quest
+                };
+                await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
+            } catch(e) {}
+        }
+
+        async function loadGame() {
+            if (!supabase) return false;
+            try {
+                const { data, error } = await supabase.from('players').select('*').eq('player_id', playerId).single();
+                if (data && !error) {
+                    camera.position.set(data.pos_x, data.pos_y, data.pos_z);
+                    timeOfDay = data.time_of_day || 8.0;
+                    playerHealth = data.health || MAX_HEALTH;
+                    playerStamina = data.stamina || MAX_STAMINA;
+                    playerHunger = data.hunger !== undefined ? data.hunger : MAX_HUNGER;
+                    playerThirst = data.thirst !== undefined ? data.thirst : MAX_THIRST;
+                    if (data.inventory) inventory = data.inventory;
+                    if (data.quest) quest = data.quest;
+                    
+                    if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
+                        data.chopped_trees.forEach(id => { choppedTrees.add(id); dummy.matrix.identity(); treeMesh.setMatrixAt(id, dummy.matrix); });
+                        treeMesh.instanceMatrix.needsUpdate = true;
+                    }
+                    if (data.campfires && Array.isArray(data.campfires)) {
+                        campfires = data.campfires;
+                        campfires.forEach(pos => { const campfire = createCampfireMesh(false); campfire.position.set(pos.x, pos.y, pos.z); campfireGroup.add(campfire); });
+                    }
+                    showNotification("✅ Game Dimuat!");
+                    updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
+                    return true;
+                }
+            } catch(e) {}
+            camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
+            updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
+            return false;
+        }
+        
+        setInterval(() => { if (controls.isLocked) saveGame(); }, 30000);
+
+        // ============ GAME LOOP ============
+        let prevTime = performance.now();
+        
+        loadGame().then(() => {
+            const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+            if (camera.position.y < terrainY + playerHeight) camera.position.y = terrainY + playerHeight;
+            document.getElementById('load-status').innerText = 'Siap! Klik untuk mulai.';
+        });
+
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                const time = performance.now();
+                const delta = Math.min((time - prevTime) / 1000, 0.1);
+
+                timeOfDay += timeSpeed * delta;
+                if (timeOfDay >= 24) timeOfDay -= 24;
+                const currentSkyColor = getSkyColor(timeOfDay);
+                scene.background = currentSkyColor; scene.fog.color = currentSkyColor;
+
+                const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
+                sunLight.position.set(Math.cos(sunAngle) * 200, Math.sin(sunAngle) * 200, 50);
+                sunLight.lookAt(0, 0, 0);
+                const sunHeight = Math.sin(sunAngle);
+                sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
+                ambientLight.intensity = sunHeight > 0 ? (0.3 + sunHeight * 0.3) : 0.15;
+
+                const waveTime = time * 0.001;
+                for (let i = 0; i < waterPosAttr.count; i++) {
+                    const x = waterPosAttr.getX(i), z = waterPosAttr.getZ(i);
+                    waterPosAttr.setY(i, waterOriginalY[i] + Math.sin(x * 0.1 + waveTime) * 0.15 + Math.cos(z * 0.1 + waveTime * 0.8) * 0.15);
+                }
+                waterPosAttr.needsUpdate = true;
+
+                const flicker = Math.sin(time * 0.05) * 0.2 + Math.random() * 0.2;
+                campfireGroup.children.forEach(campfire => {
+                    campfire.children.forEach(child => {
+                        if (child.isLight) child.intensity = 1.5 + flicker;
+                        if (child.name === 'fireMesh') child.scale.y = 1 + flicker * 0.5;
+                    });
+                });
+
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    const proj = projectiles[i]; proj.update(delta);
+                    const hitDrone = proj.checkDroneHit(drones);
+                    if (hitDrone) { 
+                        hitDrone.takeDamage(proj.damage); 
+                        // Apply burn effect jika fire arrow
+                        if (proj.burnDamage > 0) {
+                            hitDrone.applyBurn(proj.burnDuration, proj.burnDamage);
+                        }
+                        proj.destroy(); 
+                    }
+                    if (!proj.alive) projectiles.splice(i, 1);
+                }
+
+                let anyDroneChasing = false;
+                drones.forEach(drone => {
+                    drone.update(delta, camera.position, timeOfDay);
+                    if (!drone.destroyed && (drone.state === 'CHASE' || drone.state === 'ATTACK')) anyDroneChasing = true;
+                });
+                document.getElementById('alert-indicator').style.display = anyDroneChasing ? 'block' : 'none';
+
+                if (controls.isLocked) {
+                    velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta; velocity.y -= 25.0 * delta;
+                    direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize();
+
+                    const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+                    const canSprint = isSprinting && playerStamina > 0 && isMoving;
+                    const moveSpeed = canSprint ? 140.0 : 80.0;
+
+                    if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
+                    if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
+
+                    controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
+                    
+                    const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                    const groundLevel = Math.max(terrainY, waterLevel);
+                    camera.position.y += velocity.y * delta;
+
+                    if (camera.position.y < groundLevel + playerHeight) {
+                        velocity.y = 0; camera.position.y = groundLevel + playerHeight; canJump = true;
+                    }
+
+                    checkNearCampfire();
+                    if (canSprint) {
+                        playerStamina = Math.max(0, playerStamina - STAMINA_DRAIN_RATE * delta);
+                    } else if (isNearCampfire) {
+                        playerHealth = Math.min(MAX_HEALTH, playerHealth + HP_REGEN_CAMPFIRE * delta);
+                        playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_CAMPFIRE * delta);
+                        playerHunger = Math.min(MAX_HUNGER, playerHunger + 2.0 * delta);
+                        playerThirst = Math.min(MAX_THIRST, playerThirst + 2.0 * delta);
+                    } else {
+                        playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_RATE * delta);
+                    }
+
+                    playerHunger = Math.max(0, playerHunger - HUNGER_DECAY * delta);
+                    playerThirst = Math.max(0, playerThirst - THIRST_DECAY * delta);
+
+                    if (playerHunger <= 0 || playerThirst <= 0) {
+                        starvationTimer += delta;
+                        if (starvationTimer >= 1.0) {
+                            takeDamage(2);
+                            starvationTimer = 0;
+                        }
+                    } else {
+                        starvationTimer = 0;
+                    }
+
+                    updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+
+                    if (isMoving && canJump) {
+                        const stepInterval = isSprinting ? 300 : 500;
+                        if (time - lastFootstepTime > stepInterval) {
+                            SoundManager.play('footstep');
+                            lastFootstepTime = time;
+                        }
+                    }
+
+                    raycaster.setFromCamera(center, camera);
+                    let promptShown = false;
+
+                    if (isPlacingCampfire && campfirePreview) {
+                        const intersects = raycaster.intersectObject(terrain);
+                        if (intersects.length > 0) {
+                            const point = intersects[0].point; const distance = intersects[0].distance;
+                            const terrainAtPoint = getTerrainHeight(point.x, point.z);
+                            placementValid = terrainAtPoint > waterLevel + 0.1 && distance <= 15;
+                            campfirePreview.position.set(point.x, point.y + 0.1, point.z);
+                            campfirePreview.visible = true; setPreviewColor(placementValid);
+                        } else { campfirePreview.visible = false; placementValid = false; setPreviewColor(false); }
+                        promptShown = true;
+                    } else {
                         const isNearWaterCheck = camera.position.y <= waterLevel + 2.6;
                         
                         if (isNearWaterCheck) {
-                            playerThirst = Math.min(MAX_THIRST, playerThirst + 25);
-                            SoundManager.play('drink');
-                            showNotification("💧 Segar!");
-                            updateSurvivalUI();
-                        } else if (targetBerry !== null) {
-                            berryGroup.remove(targetBerry);
-                            const idx = berryMeshes.indexOf(targetBerry);
-                            if (idx > -1) berryMeshes.splice(idx, 1);
-                            playerHunger = Math.min(MAX_HUNGER, playerHunger + 20);
-                            playerThirst = Math.min(MAX_THIRST, playerThirst + 5);
-                            SoundManager.play('eat');
-                            showNotification("🍖 Enak!");
-                            updateSurvivalUI();
-                            targetBerry = null;
-                            promptUI.style.display = 'none';
-                        } else if (targetInstanceId !== null) {
-                            chopTree(targetInstanceId);
-                        } else if (targetStone !== null) {
-                            pickupStone(targetStone);
-                        }
-                    }
-                    
-                    if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
-                        if ((inventory.wood || 0) >= 5) { 
-                            inventory.wood -= 5; updateUI(); startPlacementMode(); 
-                            SoundManager.play('craft');
-                        } else { 
-                            showNotification(`Butuh 5 kayu!`, true); 
-                        }
-                    }
-                    if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) placeCampfire();
-                    if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) cancelPlacement();
-                    
-                    if (e.code === 'Digit1' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'stone'; updateWeaponHUD(); }
-                    if (e.code === 'Digit2' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'arrow'; updateWeaponHUD(); }
-                    if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
-                        if ((inventory.wood || 0) >= 2) {
-                            inventory.wood -= 2; inventory.arrows = (inventory.arrows || 0) + 3;
-                            updateUI(); showNotification("🏹 +3 Panah!"); 
-                            SoundManager.play('craft');
-                            saveGame();
-                        }
-                    }
-                    if (e.code === 'KeyQ' && controls.isLocked) saveGame();
-                    if (e.code === 'KeyR' && controls.isLocked) loadGame();
-                } catch(e) {
-                    debugLog('❌ Keydown error: ' + e.message);
-                }
-            });
-
-            document.addEventListener('mousedown', (e) => {
-                try {
-                    if (e.button === 0 && controls.isLocked && !isPlacingCampfire) shootWeapon();
-                } catch(e) {
-                    debugLog('❌ Mousedown error: ' + e.message);
-                }
-            });
-
-            document.addEventListener('keyup', (e) => {
-                try {
-                    if (e.code === 'KeyW') moveForward = false;
-                    if (e.code === 'KeyA') moveLeft = false;
-                    if (e.code === 'KeyS') moveBackward = false;
-                    if (e.code === 'KeyD') moveRight = false;
-                    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
-                        isSprinting = false;
-                        document.getElementById('sprint-indicator').style.display = 'none';
-                    }
-                } catch(e) {
-                    debugLog('❌ Keyup error: ' + e.message);
-                }
-            });
-
-            function chopTree(instanceId) {
-                dummy.matrix.identity(); treeMesh.setMatrixAt(instanceId, dummy.matrix); treeMesh.instanceMatrix.needsUpdate = true;
-                choppedTrees.add(instanceId); inventory.wood += 1; updateUI();
-                SoundManager.play('chop');
-                showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
-                targetInstanceId = null; promptUI.style.display = 'none'; saveGame();
-            }
-
-            function pickupStone(stone) {
-                stoneGroup.remove(stone);
-                const idx = stoneMeshes.indexOf(stone); if (idx > -1) stoneMeshes.splice(idx, 1);
-                inventory.stones = (inventory.stones || 0) + 1; updateUI();
-                showNotification(`+1 Batu! (Total: ${inventory.stones})`);
-                targetStone = null; promptUI.style.display = 'none';
-                saveGame();
-            }
-
-            // ============ DAY/NIGHT ============
-            let timeOfDay = 8.0;
-            const timeSpeed = 0.15;
-            const skyColors = { night: new THREE.Color(0x0a0a2e), dawn: new THREE.Color(0xff8c42), day: new THREE.Color(0x87CEEB), dusk: new THREE.Color(0xff6b6b) };
-
-            function getSkyColor(time) {
-                if (time < 5) return skyColors.night;
-                if (time < 7) return skyColors.night.clone().lerp(skyColors.dawn, (time - 5) / 2);
-                if (time < 9) return skyColors.dawn.clone().lerp(skyColors.day, (time - 7) / 2);
-                if (time < 17) return skyColors.day;
-                if (time < 19) return skyColors.day.clone().lerp(skyColors.dusk, (time - 17) / 2);
-                if (time < 21) return skyColors.dusk.clone().lerp(skyColors.night, (time - 19) / 2);
-                return skyColors.night;
-            }
-            function getTimePeriod(time) {
-                if (time < 5) return "Tengah Malam"; if (time < 7) return "Subuh";
-                if (time < 11) return "Pagi"; if (time < 14) return "Siang";
-                if (time < 17) return "Sore"; if (time < 19) return "Senja";
-                if (time < 21) return "Maghrib"; return "Malam";
-            }
-            function formatTime(time) {
-                const h = Math.floor(time) % 24, m = Math.floor((time - Math.floor(time)) * 60);
-                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-            }
-
-            scene.fog = new THREE.Fog(skyColors.day, 30, 180);
-            scene.background = skyColors.day.clone();
-
-            // ============ UI & SAVE/LOAD ============
-            function updateUI() {
-                document.getElementById('inv-wood').innerText = inventory.wood || 0;
-                document.getElementById('inv-arrows').innerText = inventory.arrows || 0;
-                document.getElementById('inv-stones').innerText = inventory.stones || 0;
-                updateWeaponHUD();
-            }
-            function updateWeaponHUD() {
-                const nameEl = document.getElementById('weapon-name'); const ammoEl = document.getElementById('weapon-ammo');
-                if (currentWeapon === 'arrow') { nameEl.innerText = '🏹 Panah'; ammoEl.innerText = `× ${inventory.arrows || 0}`; }
-                else if (currentWeapon === 'stone') { nameEl.innerText = '🪨 Batu'; ammoEl.innerText = `× ${inventory.stones || 0}`; }
-                else { nameEl.innerText = '👊 Tangan Kosong'; ammoEl.innerText = '-'; }
-            }
-            function showNotification(text, isError = false) {
-                const notif = document.getElementById('notification');
-                notif.innerText = text;
-                notif.style.background = isError ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 255, 0, 0.2)';
-                notif.style.color = isError ? '#ff4444' : '#00ff00';
-                notif.style.borderColor = isError ? '#ff4444' : '#00ff00';
-                notif.style.opacity = 1;
-                setTimeout(() => { notif.style.opacity = 0; }, 3000);
-            }
-
-            async function saveGame() {
-                if (!supabase) return;
-                try {
-                    const saveData = {
-                        player_id: playerId, pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
-                        time_of_day: timeOfDay, inventory: inventory, chopped_trees: Array.from(choppedTrees),
-                        campfires: campfires, health: playerHealth, stamina: playerStamina,
-                        hunger: playerHunger, thirst: playerThirst, quest: quest
-                    };
-                    await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
-                } catch(e) {
-                    debugLog('⚠️ Save error: ' + e.message);
-                }
-            }
-
-            async function loadGame() {
-                if (!supabase) return false;
-                try {
-                    const { data, error } = await supabase.from('players').select('*').eq('player_id', playerId).single();
-                    if (data && !error) {
-                        camera.position.set(data.pos_x, data.pos_y, data.pos_z);
-                        timeOfDay = data.time_of_day || 8.0;
-                        playerHealth = data.health || MAX_HEALTH;
-                        playerStamina = data.stamina || MAX_STAMINA;
-                        playerHunger = data.hunger !== undefined ? data.hunger : MAX_HUNGER;
-                        playerThirst = data.thirst !== undefined ? data.thirst : MAX_THIRST;
-                        if (data.inventory) inventory = data.inventory;
-                        if (data.quest) quest = data.quest;
-                        
-                        if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
-                            data.chopped_trees.forEach(id => { choppedTrees.add(id); dummy.matrix.identity(); treeMesh.setMatrixAt(id, dummy.matrix); });
-                            treeMesh.instanceMatrix.needsUpdate = true;
-                        }
-                        if (data.campfires && Array.isArray(data.campfires)) {
-                            campfires = data.campfires;
-                            campfires.forEach(pos => { const campfire = createCampfireMesh(false); campfire.position.set(pos.x, pos.y, pos.z); campfireGroup.add(campfire); });
-                        }
-                        showNotification("✅ Game Dimuat!");
-                        updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
-                        return true;
-                    }
-                } catch(e) {
-                    debugLog('⚠️ Load error: ' + e.message);
-                }
-                camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
-                updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
-                return false;
-            }
-            
-            setInterval(() => { if (controls.isLocked) saveGame(); }, 30000);
-
-            // ============ GAME LOOP ============
-            let prevTime = performance.now();
-            
-            loadGame().then(() => {
-                const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
-                if (camera.position.y < terrainY + playerHeight) camera.position.y = terrainY + playerHeight;
-                document.getElementById('load-status').innerText = 'Siap! Klik untuk mulai.';
-                debugLog('✅ Game siap!');
-            }).catch(e => {
-                debugLog('❌ Load gagal: ' + e.message);
-            });
-
-            function animate() {
-                try {
-                    requestAnimationFrame(animate);
-                    const time = performance.now();
-                    const delta = Math.min((time - prevTime) / 1000, 0.1);
-
-                    timeOfDay += timeSpeed * delta;
-                    if (timeOfDay >= 24) timeOfDay -= 24;
-                    const currentSkyColor = getSkyColor(timeOfDay);
-                    scene.background = currentSkyColor; scene.fog.color = currentSkyColor;
-
-                    const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
-                    sunLight.position.set(Math.cos(sunAngle) * 200, Math.sin(sunAngle) * 200, 50);
-                    sunLight.lookAt(0, 0, 0);
-                    const sunHeight = Math.sin(sunAngle);
-                    sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
-                    ambientLight.intensity = sunHeight > 0 ? (0.3 + sunHeight * 0.3) : 0.15;
-
-                    const waveTime = time * 0.001;
-                    for (let i = 0; i < waterPosAttr.count; i++) {
-                        const x = waterPosAttr.getX(i), z = waterPosAttr.getZ(i);
-                        waterPosAttr.setY(i, waterOriginalY[i] + Math.sin(x * 0.1 + waveTime) * 0.15 + Math.cos(z * 0.1 + waveTime * 0.8) * 0.15);
-                    }
-                    waterPosAttr.needsUpdate = true;
-
-                    const flicker = Math.sin(time * 0.05) * 0.2 + Math.random() * 0.2;
-                    campfireGroup.children.forEach(campfire => {
-                        campfire.children.forEach(child => {
-                            if (child.isLight) child.intensity = 1.5 + flicker;
-                            if (child.name === 'fireMesh') child.scale.y = 1 + flicker * 0.5;
-                        });
-                    });
-
-                    for (let i = projectiles.length - 1; i >= 0; i--) {
-                        const proj = projectiles[i]; proj.update(delta);
-                        const hitDrone = proj.checkDroneHit(drones);
-                        if (hitDrone) { hitDrone.takeDamage(proj.damage); proj.destroy(); }
-                        if (!proj.alive) projectiles.splice(i, 1);
-                    }
-
-                    let anyDroneChasing = false;
-                    drones.forEach(drone => {
-                        drone.update(delta, camera.position, timeOfDay);
-                        if (!drone.destroyed && (drone.state === 'CHASE' || drone.state === 'ATTACK')) anyDroneChasing = true;
-                    });
-                    document.getElementById('alert-indicator').style.display = anyDroneChasing ? 'block' : 'none';
-
-                    if (controls.isLocked) {
-                        velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta; velocity.y -= 25.0 * delta;
-                        direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize();
-
-                        const isMoving = moveForward || moveBackward || moveLeft || moveRight;
-                        const canSprint = isSprinting && playerStamina > 0 && isMoving;
-                        const moveSpeed = canSprint ? 140.0 : 80.0;
-
-                        if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
-                        if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
-
-                        controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
-                        
-                        const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
-                        const groundLevel = Math.max(terrainY, waterLevel);
-                        camera.position.y += velocity.y * delta;
-
-                        if (camera.position.y < groundLevel + playerHeight) {
-                            velocity.y = 0; camera.position.y = groundLevel + playerHeight; canJump = true;
-                        }
-
-                        checkNearCampfire();
-                        if (canSprint) {
-                            playerStamina = Math.max(0, playerStamina - STAMINA_DRAIN_RATE * delta);
-                        } else if (isNearCampfire) {
-                            playerHealth = Math.min(MAX_HEALTH, playerHealth + HP_REGEN_CAMPFIRE * delta);
-                            playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_CAMPFIRE * delta);
-                            playerHunger = Math.min(MAX_HUNGER, playerHunger + 2.0 * delta);
-                            playerThirst = Math.min(MAX_THIRST, playerThirst + 2.0 * delta);
-                        } else {
-                            playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_RATE * delta);
-                        }
-
-                        playerHunger = Math.max(0, playerHunger - HUNGER_DECAY * delta);
-                        playerThirst = Math.max(0, playerThirst - THIRST_DECAY * delta);
-
-                        if (playerHunger <= 0 || playerThirst <= 0) {
-                            starvationTimer += delta;
-                            if (starvationTimer >= 1.0) {
-                                takeDamage(2);
-                                starvationTimer = 0;
-                            }
-                        } else {
-                            starvationTimer = 0;
-                        }
-
-                        updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-
-                        if (isMoving && canJump) {
-                            const stepInterval = isSprinting ? 300 : 500;
-                            if (time - lastFootstepTime > stepInterval) {
-                                SoundManager.play('footstep');
-                                lastFootstepTime = time;
-                            }
-                        }
-
-                        raycaster.setFromCamera(center, camera);
-                        let promptShown = false;
-
-                        if (isPlacingCampfire && campfirePreview) {
-                            const intersects = raycaster.intersectObject(terrain);
-                            if (intersects.length > 0) {
-                                const point = intersects[0].point; const distance = intersects[0].distance;
-                                const terrainAtPoint = getTerrainHeight(point.x, point.z);
-                                placementValid = terrainAtPoint > waterLevel + 0.1 && distance <= 15;
-                                campfirePreview.position.set(point.x, point.y + 0.1, point.z);
-                                campfirePreview.visible = true; setPreviewColor(placementValid);
-                            } else { campfirePreview.visible = false; placementValid = false; setPreviewColor(false); }
+                            promptUI.innerHTML = '<span style="color:#00aaff">[E]</span> Minum Air';
+                            promptUI.style.display = 'block';
                             promptShown = true;
                         } else {
-                            const isNearWaterCheck = camera.position.y <= waterLevel + 2.6;
-                            
-                            if (isNearWaterCheck) {
-                                promptUI.innerHTML = '<span style="color:#00aaff">[E]</span> Minum Air';
+                            const berryIntersects = raycaster.intersectObjects(berryMeshes, true);
+                            let hitBerry = null;
+                            if (berryIntersects.length > 0 && berryIntersects[0].distance < 4) {
+                                let obj = berryIntersects[0].object;
+                                while(obj.parent && obj.parent !== berryGroup) { obj = obj.parent; }
+                                if (obj.userData.isBerry) hitBerry = obj;
+                            }
+
+                            if (hitBerry) {
+                                targetBerry = hitBerry;
+                                promptUI.innerHTML = '<span style="color:#ff4444">[E]</span> Makan Berry';
                                 promptUI.style.display = 'block';
                                 promptShown = true;
                             } else {
-                                const berryIntersects = raycaster.intersectObjects(berryMeshes, true);
-                                let hitBerry = null;
-                                if (berryIntersects.length > 0 && berryIntersects[0].distance < 4) {
-                                    let obj = berryIntersects[0].object;
-                                    while(obj.parent && obj.parent !== berryGroup) { obj = obj.parent; }
-                                    if (obj.userData.isBerry) hitBerry = obj;
-                                }
-
-                                if (hitBerry) {
-                                    targetBerry = hitBerry;
-                                    promptUI.innerHTML = '<span style="color:#ff4444">[E]</span> Makan Berry';
-                                    promptUI.style.display = 'block';
-                                    promptShown = true;
-                                } else {
-                                    targetBerry = null;
-                                    const treeIntersects = raycaster.intersectObject(treeMesh);
-                                    const stoneIntersects = raycaster.intersectObjects(stoneMeshes);
-                                    const treeDist = treeIntersects.length > 0 ? treeIntersects[0].distance : Infinity;
-                                    const stoneDist = stoneIntersects.length > 0 ? stoneIntersects[0].distance : Infinity;
-                                    
-                                    targetInstanceId = null; targetStone = null;
-                                    
-                                    if (treeDist < 6 && treeDist < stoneDist) {
-                                        const instanceId = treeIntersects[0].instanceId;
-                                        if (!choppedTrees.has(instanceId)) {
-                                            targetInstanceId = instanceId;
-                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
-                                            promptUI.style.display = 'block'; promptShown = true;
-                                        }
-                                    } else if (stoneDist < 4) {
-                                        targetStone = stoneIntersects[0].object;
-                                        promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Pungut Batu';
+                                targetBerry = null;
+                                const treeIntersects = raycaster.intersectObject(treeMesh);
+                                const stoneIntersects = raycaster.intersectObjects(stoneMeshes);
+                                const treeDist = treeIntersects.length > 0 ? treeIntersects[0].distance : Infinity;
+                                const stoneDist = stoneIntersects.length > 0 ? stoneIntersects[0].distance : Infinity;
+                                
+                                targetInstanceId = null; targetStone = null;
+                                
+                                if (treeDist < 6 && treeDist < stoneDist) {
+                                    const instanceId = treeIntersects[0].instanceId;
+                                    if (!choppedTrees.has(instanceId)) {
+                                        targetInstanceId = instanceId;
+                                        promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
                                         promptUI.style.display = 'block'; promptShown = true;
                                     }
+                                } else if (stoneDist < 4) {
+                                    targetStone = stoneIntersects[0].object;
+                                    promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Pungut Batu';
+                                    promptUI.style.display = 'block'; promptShown = true;
                                 }
                             }
                         }
-                        
-                        if (!promptShown) promptUI.style.display = 'none';
-
-                        document.getElementById('time').innerText = formatTime(timeOfDay);
-                        document.getElementById('period').innerText = getTimePeriod(timeOfDay);
                     }
+                    
+                    if (!promptShown) promptUI.style.display = 'none';
 
-                    prevTime = time;
-                    renderer.render(scene, camera);
-                } catch(e) {
-                    debugLog('❌ Animate error: ' + e.message);
-                    // Game loop tetap berjalan meski ada error
-                    requestAnimationFrame(animate);
+                    document.getElementById('time').innerText = formatTime(timeOfDay);
+                    document.getElementById('period').innerText = getTimePeriod(timeOfDay);
                 }
-            }
 
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
-
-            debugLog('✅ Memulai game loop...');
-            animate();
-            
-        } catch(e) {
-            console.error('❌ FATAL ERROR:', e);
-            const blocker = document.getElementById('blocker');
-            if (blocker) {
-                blocker.innerHTML = `
-                    <h1 style="color: #ff0000;">❌ ERROR</h1>
-                    <p style="color: #ff6666;">${e.message}</p>
-                    <p style="color: #888; font-size: 12px; margin-top: 20px;">Buka Console (F12) untuk detail</p>
-                `;
+                prevTime = time;
+                renderer.render(scene, camera);
+            } catch(e) {
+                requestAnimationFrame(animate);
             }
         }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
     </script>
 </body>
 </html>
