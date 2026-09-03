@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Crafting & Campfires (Fixed v2)</title>
+    <title>WILDLANDS: Keyboard Only Controls</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -11,13 +11,6 @@
             background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
             pointer-events: none; min-width: 240px;
         }
-        #ui-layer button {
-            pointer-events: auto; background: #004400; color: #00ff00; 
-            border: 1px solid #00ff00; padding: 5px 10px; margin-top: 5px;
-            cursor: pointer; font-family: inherit; width: 100%;
-        }
-        #ui-layer button:disabled { background: #222; color: #555; border-color: #555; cursor: not-allowed; }
-        #ui-layer button:hover:not(:disabled) { background: #006600; }
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
             border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
@@ -56,13 +49,9 @@
 
     <div id="ui-layer">
         <h3>WILDLANDS: LAST SIGNAL</h3>
-        <p>🎒 Inventory: <span id="inv-wood">0</span> Kayu</p>
-        <p>🕒 Waktu: <span id="time">06:00</span> | <span id="period">Pagi</span></p>
+        <p>🎒 Kayu: <span id="inv-wood">0</span></p>
+        <p>🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
         <p>📍 <span id="coords">0, 0, 0</span></p>
-        <hr style="border-color: #004400;">
-        <button id="btn-craft">🔥 Buat Api Unggun (5 Kayu)</button>
-        <button id="btn-save">💾 Simpan Game</button>
-        <button id="btn-load">🔄 Muat Game</button>
     </div>
     
     <div id="crosshair"></div>
@@ -73,14 +62,18 @@
     <div id="controls-help">
         <strong>Kontrol:</strong><br>
         WASD: Gerak | SPACE: Lompat<br>
-        E: Interaksi | F: Letakkan<br>
-        X/ESC: Batalkan Placement
+        E: Interaksi (Tebang Pohon)<br>
+        C: Craft Api Unggun (5 Kayu)<br>
+        F: Letakkan Api Unggun<br>
+        X/ESC: Batalkan Placement<br>
+        Q: Save Game | R: Load Game
     </div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI</h1>
         <p>Gerak: W, A, S, D | Lompat: SPASI</p>
-        <p>E: Interaksi | F: Letakkan Api Unggun</p>
+        <p>E: Tebang | C: Craft | F: Letakkan</p>
+        <p>Q: Save | R: Load</p>
         <p>Tekan ESC untuk melepaskan kursor.</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
@@ -205,11 +198,9 @@
         }
         scene.add(treeMesh);
 
-        // --- 5. RAYCASTER & INTERAKSI ---
+        // --- 5. RAYCASTER ---
         const raycaster = new THREE.Raycaster();
-        // PERBAIKAN: Hapus batasan far yang terlalu pendek, atau buat lebih panjang
-        // raycaster.far = 15; // INI PENYEBAB UTAMA MASALAH!
-        raycaster.far = 100; // Sekarang bisa mendeteksi sampai 100 unit
+        raycaster.far = 100;
         const center = new THREE.Vector2(0, 0);
         let targetInstanceId = null;
 
@@ -222,30 +213,20 @@
             const group = new THREE.Group();
             
             if (isPreview) {
-                // ===== PREVIEW MODE: Buat indikator yang SANGAT TERLIHAT =====
-                
-                // 1. Sphere besar transparan (untuk melihat dari jauh)
                 const sphereGeo = new THREE.SphereGeometry(1.5, 16, 16);
                 const sphereMat = new THREE.MeshBasicMaterial({ 
-                    color: 0x00ff00, 
-                    transparent: true, 
-                    opacity: 0.3,
-                    depthWrite: false,
-                    side: THREE.DoubleSide
+                    color: 0x00ff00, transparent: true, opacity: 0.4,
+                    depthWrite: false, side: THREE.DoubleSide
                 });
                 const sphere = new THREE.Mesh(sphereGeo, sphereMat);
                 sphere.position.y = 1;
                 sphere.name = 'previewSphere';
                 group.add(sphere);
                 
-                // 2. Ring di tanah (indikator posisi persis)
                 const ringGeo = new THREE.RingGeometry(1.2, 1.5, 32);
                 const ringMat = new THREE.MeshBasicMaterial({ 
-                    color: 0x00ff00, 
-                    transparent: true, 
-                    opacity: 0.8,
-                    side: THREE.DoubleSide,
-                    depthWrite: false
+                    color: 0x00ff00, transparent: true, opacity: 0.9,
+                    side: THREE.DoubleSide, depthWrite: false
                 });
                 const ring = new THREE.Mesh(ringGeo, ringMat);
                 ring.rotation.x = -Math.PI / 2;
@@ -253,23 +234,7 @@
                 ring.name = 'previewRing';
                 group.add(ring);
                 
-                // 3. Api unggun transparan (untuk melihat bentuk)
-                const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
-                const logMat = new THREE.MeshBasicMaterial({ 
-                    color: 0x4a3018, 
-                    transparent: true, 
-                    opacity: 0.6,
-                    depthWrite: false
-                });
-                for(let i=0; i<4; i++) {
-                    const log = new THREE.Mesh(logGeo, logMat);
-                    log.rotation.z = Math.PI / 2;
-                    log.rotation.y = (i / 4) * Math.PI;
-                    group.add(log);
-                }
-                
             } else {
-                // ===== REAL CAMPFIRE =====
                 const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
                 const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
                 
@@ -317,13 +282,12 @@
                 }
             });
             
-            // Update status text
             const statusEl = document.getElementById('placement-status');
             if (isValid) {
                 statusEl.innerText = '✓ VALID - Tekan F';
                 statusEl.style.color = '#00ff00';
             } else {
-                statusEl.innerText = '✗ INVALID - Cari daratan';
+                statusEl.innerText = '✗ INVALID';
                 statusEl.style.color = '#ff0000';
             }
         }
@@ -335,13 +299,12 @@
             scene.add(campfirePreview);
             
             const promptUI = document.getElementById('interaction-prompt');
-            promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan Api Unggun<br><span style="font-size:14px; color:#aaa">[X] atau [ESC] untuk Batal</span>';
+            promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan<br><span style="font-size:14px; color:#aaa">[X] Batal</span>';
             promptUI.style.display = 'block';
-            
             document.getElementById('placement-status').style.display = 'block';
             
-            showNotification("Mode Placement Aktif! Arahkan ke tanah lalu tekan F");
-            console.log("✅ Placement mode started");
+            showNotification("Mode Placement Aktif!");
+            console.log("✅ PLACEMENT MODE STARTED");
         }
 
         function cancelPlacement() {
@@ -353,10 +316,11 @@
             isPlacingCampfire = false;
             document.getElementById('interaction-prompt').style.display = 'none';
             document.getElementById('placement-status').style.display = 'none';
-            showNotification("Placement dibatalkan");
+            showNotification("Dibatalkan");
         }
 
         function placeCampfire() {
+            console.log("🔥 PLACE CAMPFIRE CALLED, valid:", placementValid);
             if (!campfirePreview || !placementValid) {
                 showNotification("❌ Posisi tidak valid!", true);
                 return;
@@ -368,7 +332,6 @@
             campfireGroup.add(campfire);
             campfires.push({ x: pos.x, y: pos.y, z: pos.z });
             
-            // Cleanup
             scene.remove(campfirePreview);
             campfirePreview = null;
             isPlacingCampfire = false;
@@ -402,6 +365,8 @@
         const playerHeight = 2.5;
 
         document.addEventListener('keydown', (e) => {
+            console.log("KEY PRESSED:", e.code); // DEBUG: Lihat semua tombol yang ditekan
+            
             if (e.code === 'KeyW') moveForward = true;
             if (e.code === 'KeyA') moveLeft = true;
             if (e.code === 'KeyS') moveBackward = true;
@@ -413,15 +378,36 @@
                 chopTree(targetInstanceId);
             }
             
+            // CRAFT 'C' - Buat Api Unggun
+            if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
+                if ((inventory.wood || 0) >= 5) {
+                    inventory.wood -= 5;
+                    updateUI();
+                    startPlacementMode();
+                } else {
+                    showNotification(`Butuh 5 kayu! (Anda: ${inventory.wood || 0})`, true);
+                }
+            }
+            
             // LETAKKAN 'F' - Place Campfire
             if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) {
-                console.log("F pressed, placementValid:", placementValid);
+                console.log("🔥 F PRESSED - Calling placeCampfire()");
                 placeCampfire();
             }
             
             // BATALKAN 'X' atau 'ESC'
             if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) {
                 cancelPlacement();
+            }
+            
+            // SAVE 'Q'
+            if (e.code === 'KeyQ' && controls.isLocked) {
+                saveGame();
+            }
+            
+            // LOAD 'R'
+            if (e.code === 'KeyR' && controls.isLocked) {
+                loadGame();
             }
         });
 
@@ -482,14 +468,6 @@
         // --- 9. SAVE & LOAD SYSTEM ---
         function updateUI() {
             document.getElementById('inv-wood').innerText = inventory.wood || 0;
-            const btnCraft = document.getElementById('btn-craft');
-            if ((inventory.wood || 0) >= 5) {
-                btnCraft.disabled = false;
-                btnCraft.innerText = "🔥 Buat Api Unggun (5 Kayu)";
-            } else {
-                btnCraft.disabled = true;
-                btnCraft.innerText = `🔥 Api Unggun (Butuh ${5 - (inventory.wood || 0)} Kayu)`;
-            }
         }
 
         function showNotification(text, isError = false) {
@@ -503,7 +481,7 @@
         }
 
         async function saveGame() {
-            showNotification("Menyimpan...");
+            showNotification("💾 Menyimpan...");
             const saveData = {
                 player_id: playerId,
                 pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
@@ -516,14 +494,14 @@
             const { error } = await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
             if (error) {
                 console.error('Save error:', error);
-                showNotification("Gagal menyimpan!", true);
+                showNotification("❌ Gagal menyimpan!", true);
             } else {
-                showNotification("✅ Game Berhasil Disimpan!");
+                showNotification("✅ Game Disimpan!");
             }
         }
 
         async function loadGame() {
-            showNotification("Memuat...");
+            showNotification("🔄 Memuat...");
             const { data, error } = await supabase.from('players').select('*').eq('player_id', playerId).single();
 
             if (data && !error) {
@@ -550,7 +528,7 @@
                     });
                 }
 
-                showNotification("✅ Game Berhasil Dimuat!");
+                showNotification("✅ Game Dimuat!");
                 loadStatus.innerText = "Data ditemukan! Klik untuk mulai.";
                 updateUI();
                 return true;
@@ -561,17 +539,6 @@
                 return false;
             }
         }
-
-        document.getElementById('btn-save').addEventListener('click', (e) => { e.stopPropagation(); saveGame(); });
-        document.getElementById('btn-load').addEventListener('click', (e) => { e.stopPropagation(); loadGame(); });
-        document.getElementById('btn-craft').addEventListener('click', (e) => { 
-            e.stopPropagation(); 
-            if ((inventory.wood || 0) >= 5) {
-                inventory.wood -= 5;
-                updateUI();
-                startPlacementMode();
-            }
-        });
         
         setInterval(() => { if (controls.isLocked) saveGame(); }, 30000);
 
@@ -651,38 +618,30 @@
                 raycaster.setFromCamera(center, camera);
 
                 if (isPlacingCampfire && campfirePreview) {
-                    // MODE PLACEMENT: Raycast ke terrain
                     const intersects = raycaster.intersectObject(terrain);
                     
                     if (intersects.length > 0) {
                         const point = intersects[0].point;
                         const distance = intersects[0].distance;
                         
-                        // Validasi: di daratan dan dalam jangkauan (15 unit)
                         const terrainAtPoint = getTerrainHeight(point.x, point.z);
                         placementValid = terrainAtPoint > waterLevel + 0.1 && distance <= 15;
                         
                         campfirePreview.position.set(point.x, point.y + 0.1, point.z);
                         campfirePreview.visible = true;
                         setPreviewColor(placementValid);
-                        
-                        // Debug log (buka F12 untuk melihat)
-                        if (Math.floor(time / 500) % 2 === 0) { // Log setiap 0.5 detik
-                            console.log(`Raycast: distance=${distance.toFixed(1)}, terrainY=${terrainAtPoint.toFixed(1)}, valid=${placementValid}`);
-                        }
                     } else {
                         campfirePreview.visible = false;
                         placementValid = false;
                         setPreviewColor(false);
                     }
                 } else {
-                    // MODE NORMAL: Raycast ke pohon
                     const intersects = raycaster.intersectObject(treeMesh);
                     if (intersects.length > 0 && intersects[0].distance < 6) {
                         const instanceId = intersects[0].instanceId;
                         if (!choppedTrees.has(instanceId)) {
                             targetInstanceId = instanceId;
-                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang';
                             promptUI.style.display = 'block';
                         } else {
                             targetInstanceId = null;
