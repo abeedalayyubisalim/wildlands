@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: AI Drone Enemy</title>
+    <title>WILDLANDS: Stamina & Sprint</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -11,14 +11,20 @@
             background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
             pointer-events: none; min-width: 240px;
         }
-        #health-bar-container {
-            width: 100%; height: 15px; background: #330000; 
-            border: 1px solid #ff0000; margin-top: 5px;
+        .bar-container {
+            width: 100%; height: 12px; background: #222; 
+            border: 1px solid #555; margin-top: 3px; margin-bottom: 8px;
         }
         #health-bar {
             width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff6666);
             transition: width 0.3s;
         }
+        #stamina-bar {
+            width: 100%; height: 100%; background: linear-gradient(90deg, #00aaff, #66ddff);
+            transition: width 0.2s;
+        }
+        #stamina-bar.low { background: linear-gradient(90deg, #ffaa00, #ffdd00); }
+        #stamina-bar.empty { background: linear-gradient(90deg, #ff0000, #ff4444); }
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
             border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
@@ -62,6 +68,19 @@
             text-shadow: 0 0 10px red; display: none;
             animation: pulse 0.5s infinite;
         }
+        #sprint-indicator {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            color: #00ffff; font-size: 14px; font-weight: bold;
+            text-shadow: 0 0 5px cyan; display: none;
+            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 3px;
+        }
+        #campfire-bonus {
+            position: absolute; top: 10px; right: 10px;
+            color: #ffaa00; font-size: 14px; font-weight: bold;
+            text-shadow: 0 0 5px orange; display: none;
+            background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 5px;
+            border: 1px solid #ffaa00;
+        }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
@@ -73,7 +92,9 @@
     <div id="ui-layer">
         <h3>WILDLANDS: LAST SIGNAL</h3>
         <p>❤️ HP: <span id="health-text">100</span>/100</p>
-        <div id="health-bar-container"><div id="health-bar"></div></div>
+        <div class="bar-container"><div id="health-bar"></div></div>
+        <p>⚡ Stamina: <span id="stamina-text">100</span>/100</p>
+        <div class="bar-container"><div id="stamina-bar"></div></div>
         <p>🎒 Kayu: <span id="inv-wood">0</span></p>
         <p>🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
         <p>📍 <span id="coords">0, 0, 0</span></p>
@@ -85,20 +106,22 @@
     <div id="notification">Game Disimpan!</div>
     <div id="damage-overlay"></div>
     <div id="alert-indicator">⚠️ TERDETEKSI!</div>
+    <div id="sprint-indicator">🏃 SPRINT AKTIF</div>
+    <div id="campfire-bonus">🔥 Istirahat di Api Unggun<br><small>Stamina pulih cepat!</small></div>
     
     <div id="controls-help">
         <strong>Kontrol:</strong><br>
         WASD: Gerak | SPACE: Lompat<br>
-        E: Tebang Pohon | C: Craft Api Unggun<br>
-        F: Letakkan Api | Q: Save | R: Load<br>
-        X/ESC: Batalkan Placement
+        <span style="color:#00ffff">SHIFT: Sprint (Lari Cepat)</span><br>
+        E: Tebang | C: Craft Api | F: Letakkan<br>
+        Q: Save | R: Load | X: Batal
     </div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI</h1>
-        <p>⚠️ PERINGATAN: Drone Pencari berpatroli di area ini!</p>
-        <p>Hindari cahaya merah mereka, terutama di malam hari.</p>
-        <p>Api unggun dapat menarik perhatian drone!</p>
+        <p>⚠️ Drone Pencari berpatroli di area ini!</p>
+        <p>Tahan <span style="color:#00ffff">SHIFT</span> untuk sprint menghindari drone.</p>
+        <p>Api unggun memulihkan stamina dengan cepat.</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
 
@@ -137,6 +160,16 @@
         let playerHealth = 100;
         const MAX_HEALTH = 100;
         let lastDamageTime = 0;
+        
+        // STAMINA SYSTEM
+        let playerStamina = 100;
+        const MAX_STAMINA = 100;
+        const STAMINA_DRAIN_RATE = 15; // per detik saat sprint
+        const STAMINA_REGEN_RATE = 5; // per detik saat jalan/diam
+        const STAMINA_REGEN_CAMPFIRE = 20; // per detik dekat api unggun
+        const CAMPFIRE_RADIUS = 8; // radius bonus api unggun
+        let isSprinting = false;
+        let isNearCampfire = false;
 
         // --- 2. THREE.JS SETUP ---
         const scene = new THREE.Scene();
@@ -199,7 +232,7 @@
         const waterOriginalY = new Float32Array(waterPosAttr.count);
         for (let i = 0; i < waterPosAttr.count; i++) waterOriginalY[i] = waterPosAttr.getY(i);
 
-        // --- 4. POHON (INSTANCED MESH) ---
+        // --- 4. POHON ---
         const treeCount = 800;
         const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
         const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
@@ -371,7 +404,7 @@
         class PatrolDrone {
             constructor(spawnPos, patrolRadius = 40) {
                 this.group = new THREE.Group();
-                this.state = 'PATROL'; // PATROL, ALERT, CHASE, ATTACK
+                this.state = 'PATROL';
                 this.patrolRadius = patrolRadius;
                 this.patrolAngle = Math.random() * Math.PI * 2;
                 this.patrolSpeed = 0.3;
@@ -381,8 +414,8 @@
                 this.damage = 10;
                 this.alertTimer = 0;
                 this.lastAttackTime = 0;
+                this.lostTargetTimer = 0; // Timer sebelum kembali patrol
                 
-                // Build drone model
                 this.buildDroneModel();
                 this.group.position.copy(spawnPos);
                 this.group.position.y = getTerrainHeight(spawnPos.x, spawnPos.z) + 8;
@@ -392,7 +425,6 @@
             }
 
             buildDroneModel() {
-                // Body utama
                 const bodyGeo = new THREE.BoxGeometry(1.5, 0.4, 1.5);
                 const bodyMat = new THREE.MeshStandardMaterial({ 
                     color: 0x333333, metalness: 0.8, roughness: 0.3 
@@ -401,7 +433,6 @@
                 body.castShadow = true;
                 this.group.add(body);
 
-                // 4 Lengan drone
                 const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.5, 8);
                 const armMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
                 const armPositions = [
@@ -418,7 +449,6 @@
                     arm.castShadow = true;
                     this.group.add(arm);
 
-                    // Rotor (piringan)
                     const rotorGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.05, 16);
                     const rotorMat = new THREE.MeshBasicMaterial({ 
                         color: 0x666666, transparent: true, opacity: 0.5 
@@ -429,14 +459,12 @@
                     this.group.add(rotor);
                 });
 
-                // Lampu indikator (merah saat chase)
                 const lightGeo = new THREE.SphereGeometry(0.15, 8, 8);
                 this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
                 this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
                 this.indicator.position.set(0, -0.25, 0);
                 this.group.add(this.indicator);
 
-                // Spotlight (lampu sorot ke bawah)
                 this.spotlight = new THREE.SpotLight(0xffffaa, 2, 30, Math.PI / 6, 0.5, 1);
                 this.spotlight.position.set(0, -0.3, 0);
                 this.spotlight.target.position.set(0, -10, 0);
@@ -445,7 +473,6 @@
                 this.group.add(this.spotlight);
                 this.group.add(this.spotlight.target);
 
-                // Beam visual (kerucut cahaya transparan)
                 const beamGeo = new THREE.ConeGeometry(4, 15, 16, 1, true);
                 const beamMat = new THREE.MeshBasicMaterial({
                     color: 0xffffaa, transparent: true, opacity: 0.08,
@@ -458,7 +485,6 @@
             }
 
             update(delta, playerPos, timeOfDay) {
-                // Putar rotor terus-menerus
                 this.rotors.forEach(rotor => {
                     rotor.rotation.y += delta * 30;
                 });
@@ -466,7 +492,6 @@
                 const distToPlayer = this.group.position.distanceTo(playerPos);
                 const isNight = timeOfDay < 6 || timeOfDay > 19;
                 
-                // Cek apakah ada api unggun dekat drone (menarik perhatian)
                 let campfireNearby = false;
                 campfires.forEach(cf => {
                     const cfPos = new THREE.Vector3(cf.x, cf.y, cf.z);
@@ -475,7 +500,6 @@
                     }
                 });
 
-                // State Machine AI
                 switch(this.state) {
                     case 'PATROL':
                         this.patrolAngle += this.patrolSpeed * delta;
@@ -487,30 +511,25 @@
                         this.group.position.z += (targetZ - this.group.position.z) * delta;
                         this.group.position.y += (targetY - this.group.position.y) * delta;
                         
-                        // Hadapkan ke arah gerakan
                         this.group.lookAt(targetX, this.group.position.y, targetZ);
                         
-                        // Warna indikator hijau saat patrol
                         this.indicatorMat.color.setHex(0x00ff00);
                         this.spotlight.intensity = 1;
                         this.beam.material.opacity = 0.05;
 
-                        // Deteksi pemain
                         const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
                         const detectBonus = campfireNearby ? 10 : 0;
                         
                         if (distToPlayer < detectRange + detectBonus) {
-                            // Line of sight check (sederhana)
                             this.state = 'ALERT';
-                            this.alertTimer = 1.5; // Waktu sebelum chase
+                            this.alertTimer = 1.5;
                             showNotification("⚠️ Drone mendeteksi sesuatu!", true);
                         }
                         break;
 
                     case 'ALERT':
-                        // Berhenti sejenak, hadap ke pemain
                         this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
-                        this.indicatorMat.color.setHex(0xffff00); // Kuning
+                        this.indicatorMat.color.setHex(0xffff00);
                         this.spotlight.intensity = 2;
                         
                         this.alertTimer -= delta;
@@ -521,7 +540,6 @@
                         break;
 
                     case 'CHASE':
-                        // Kejar pemain
                         const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
                         const chaseY = getTerrainHeight(playerPos.x, playerPos.z) + 5;
                         
@@ -531,40 +549,54 @@
                         
                         this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
                         
-                        this.indicatorMat.color.setHex(0xff0000); // Merah
+                        this.indicatorMat.color.setHex(0xff0000);
                         this.spotlight.intensity = 3;
                         this.spotlight.color.setHex(0xff4444);
                         this.beam.material.opacity = 0.15;
                         this.beam.material.color.setHex(0xff4444);
 
-                        // Masuk attack range
                         if (distToPlayer < this.attackRange) {
                             this.state = 'ATTACK';
                         }
                         
-                        // Lepas target jika terlalu jauh
+                        // Lepas target - masuk state LOST dulu
                         if (distToPlayer > this.detectionRange * 2.5) {
+                            this.state = 'LOST';
+                            this.lostTargetTimer = 3; // 3 detik sebelum kembali patrol
+                            showNotification("✅ Drone kehilangan jejak!");
+                        }
+                        break;
+
+                    case 'LOST':
+                        // Drone bingung, terbang kembali ke home
+                        const dirHome = new THREE.Vector3().subVectors(this.homePosition, this.group.position).normalize();
+                        this.group.position.x += dirHome.x * 3 * delta;
+                        this.group.position.z += dirHome.z * 3 * delta;
+                        
+                        this.indicatorMat.color.setHex(0xffaa00); // Oranye (bingung)
+                        this.spotlight.intensity = 1.5;
+                        this.spotlight.color.setHex(0xffffaa);
+                        this.beam.material.color.setHex(0xffffaa);
+                        this.beam.material.opacity = 0.08;
+                        
+                        this.lostTargetTimer -= delta;
+                        if (this.lostTargetTimer <= 0) {
                             this.state = 'PATROL';
-                            this.spotlight.color.setHex(0xffffaa);
-                            this.beam.material.color.setHex(0xffffaa);
                         }
                         break;
 
                     case 'ATTACK':
-                        // Serangan: damage pemain
                         const now = performance.now();
-                        if (now - this.lastAttackTime > 1000) { // 1 detik cooldown
+                        if (now - this.lastAttackTime > 1000) {
                             this.lastAttackTime = now;
                             takeDamage(this.damage);
                         }
                         
-                        // Tetap kejar perlahan
                         const dirAttack = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
                         this.group.position.x += dirAttack.x * 2 * delta;
                         this.group.position.z += dirAttack.z * 2 * delta;
                         this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
                         
-                        // Kembali chase jika pemain menjauh
                         if (distToPlayer > this.attackRange * 1.5) {
                             this.state = 'CHASE';
                         }
@@ -577,7 +609,6 @@
             playerHealth = Math.max(0, playerHealth - amount);
             updateHealthUI();
             
-            // Visual feedback
             const overlay = document.getElementById('damage-overlay');
             overlay.style.opacity = 1;
             setTimeout(() => { overlay.style.opacity = 0; }, 300);
@@ -601,11 +632,13 @@
             
             blocker.onclick = () => {
                 playerHealth = MAX_HEALTH;
+                playerStamina = MAX_STAMINA;
                 updateHealthUI();
+                updateStaminaUI();
                 camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
                 blocker.innerHTML = `
                     <h1>KLIK UNTUK MULAI</h1>
-                    <p>⚠️ PERINGATAN: Drone Pencari berpatroli!</p>
+                    <p>⚠️ Drone Pencari berpatroli!</p>
                     <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
                 `;
                 blocker.onclick = () => controls.lock();
@@ -617,15 +650,33 @@
             document.getElementById('health-text').innerText = Math.round(playerHealth);
             const healthBar = document.getElementById('health-bar');
             healthBar.style.width = (playerHealth / MAX_HEALTH * 100) + '%';
+        }
+
+        // STAMINA UI
+        function updateStaminaUI() {
+            document.getElementById('stamina-text').innerText = Math.round(playerStamina);
+            const staminaBar = document.getElementById('stamina-bar');
+            staminaBar.style.width = (playerStamina / MAX_STAMINA * 100) + '%';
             
-            // Warna berubah saat HP rendah
-            if (playerHealth < 30) {
-                healthBar.style.background = 'linear-gradient(90deg, #ff0000, #ff3300)';
-            } else if (playerHealth < 60) {
-                healthBar.style.background = 'linear-gradient(90deg, #ff6600, #ffaa00)';
-            } else {
-                healthBar.style.background = 'linear-gradient(90deg, #ff0000, #ff6666)';
+            staminaBar.classList.remove('low', 'empty');
+            if (playerStamina < 20) {
+                staminaBar.classList.add('empty');
+            } else if (playerStamina < 50) {
+                staminaBar.classList.add('low');
             }
+        }
+
+        // CEK DEKAT API UNGGUN
+        function checkNearCampfire() {
+            let near = false;
+            campfires.forEach(cf => {
+                const cfPos = new THREE.Vector3(cf.x, cf.y, cf.z);
+                if (camera.position.distanceTo(cfPos) < CAMPFIRE_RADIUS) {
+                    near = true;
+                }
+            });
+            isNearCampfire = near;
+            document.getElementById('campfire-bonus').style.display = near ? 'block' : 'none';
         }
 
         // Spawn drone
@@ -663,7 +714,17 @@
             if (e.code === 'KeyA') moveLeft = true;
             if (e.code === 'KeyS') moveBackward = true;
             if (e.code === 'KeyD') moveRight = true;
-            if (e.code === 'Space' && canJump) { velocity.y += 8; canJump = false; }
+            if (e.code === 'Space' && canJump && playerStamina > 10) { 
+                velocity.y += 8; 
+                canJump = false;
+                playerStamina = Math.max(0, playerStamina - 5); // Lompat消耗 stamina
+            }
+            
+            // SPRINT - Tahan SHIFT
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                isSprinting = true;
+                document.getElementById('sprint-indicator').style.display = 'block';
+            }
             
             if (e.code === 'KeyE' && targetInstanceId !== null && controls.isLocked && !isPlacingCampfire) {
                 chopTree(targetInstanceId);
@@ -696,6 +757,12 @@
             if (e.code === 'KeyA') moveLeft = false;
             if (e.code === 'KeyS') moveBackward = false;
             if (e.code === 'KeyD') moveRight = false;
+            
+            // Lepas sprint
+            if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+                isSprinting = false;
+                document.getElementById('sprint-indicator').style.display = 'none';
+            }
         });
 
         function chopTree(instanceId) {
@@ -769,7 +836,8 @@
                 inventory: inventory,
                 chopped_trees: Array.from(choppedTrees),
                 campfires: campfires,
-                health: playerHealth
+                health: playerHealth,
+                stamina: playerStamina
             };
 
             const { error } = await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
@@ -789,6 +857,7 @@
                 camera.position.set(data.pos_x, data.pos_y, data.pos_z);
                 timeOfDay = data.time_of_day || 8.0;
                 playerHealth = data.health || MAX_HEALTH;
+                playerStamina = data.stamina || MAX_STAMINA;
                 
                 if (data.inventory) inventory = data.inventory;
 
@@ -814,12 +883,14 @@
                 loadStatus.innerText = "Data ditemukan! Klik untuk mulai.";
                 updateUI();
                 updateHealthUI();
+                updateStaminaUI();
                 return true;
             } else {
                 loadStatus.innerText = "Data tidak ditemukan. Memulai game baru.";
                 camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
                 updateUI();
                 updateHealthUI();
+                updateStaminaUI();
                 return false;
             }
         }
@@ -880,8 +951,6 @@
                     anyDroneChasing = true;
                 }
             });
-            
-            // Tampilkan alert indicator
             document.getElementById('alert-indicator').style.display = anyDroneChasing ? 'block' : 'none';
 
             // Logika Pemain
@@ -894,8 +963,15 @@
                 direction.x = Number(moveRight) - Number(moveLeft);
                 direction.normalize();
 
-                if (moveForward || moveBackward) velocity.z -= direction.z * 80.0 * delta;
-                if (moveLeft || moveRight) velocity.x -= direction.x * 80.0 * delta;
+                // SPRINT MECHANIC
+                const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+                const canSprint = isSprinting && playerStamina > 0 && isMoving;
+                
+                // Kecepatan dasar: 80, Sprint: 140 (1.75x)
+                const moveSpeed = canSprint ? 140.0 : 80.0;
+
+                if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
+                if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
 
                 controls.moveRight(-velocity.x * delta);
                 controls.moveForward(-velocity.z * delta);
@@ -910,7 +986,20 @@
                     canJump = true;
                 }
 
-                // Raycasting untuk interaksi pohon
+                // === STAMINA UPDATE ===
+                checkNearCampfire();
+                
+                if (canSprint) {
+                    // Sprint: kurangi stamina
+                    playerStamina = Math.max(0, playerStamina - STAMINA_DRAIN_RATE * delta);
+                } else {
+                    // Regenerasi stamina
+                    const regenRate = isNearCampfire ? STAMINA_REGEN_CAMPFIRE : STAMINA_REGEN_RATE;
+                    playerStamina = Math.min(MAX_STAMINA, playerStamina + regenRate * delta);
+                }
+                updateStaminaUI();
+
+                // Raycasting untuk interaksi
                 raycaster.setFromCamera(center, camera);
 
                 if (isPlacingCampfire && campfirePreview) {
