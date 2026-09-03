@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Open World Terrain</title>
+    <title>WILDLANDS: Open World - Day/Night & Water</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
         #ui-layer {
             position: absolute; top: 10px; left: 10px; color: #00ff00; 
             background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
-            pointer-events: none;
+            pointer-events: none; min-width: 220px;
         }
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
@@ -29,6 +29,7 @@
 
     <div id="ui-layer">
         <h3>WILDLANDS: LAST SIGNAL</h3>
+        <p>Waktu: <span id="time">06:00</span> | <span id="period">Pagi</span></p>
         <p>Biome: <span id="biome">Unknown</span></p>
         <p>Koordinat: <span id="coords">0, 0, 0</span></p>
     </div>
@@ -55,10 +56,6 @@
 
         // --- 1. SETUP DASAR ---
         const scene = new THREE.Scene();
-        // Fog yang lebih tebal untuk menyembunyikan batas peta dan memberi kesan dunia luas
-        scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 20, 150); 
-
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -66,26 +63,26 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        // --- 2. PENCAHAYAAN ---
+        // --- 2. PENCAHAYAAN (akan diupdate oleh Day/Night Cycle) ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
         scene.add(ambientLight);
 
-        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
-        dirLight.position.set(100, 150, 50);
-        dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = 2048;
-        dirLight.shadow.mapSize.height = 2048;
-        dirLight.shadow.camera.near = 0.5;
-        dirLight.shadow.camera.far = 500;
-        dirLight.shadow.camera.left = -150;
-        dirLight.shadow.camera.right = 150;
-        dirLight.shadow.camera.top = 150;
-        dirLight.shadow.camera.bottom = -150;
-        scene.add(dirLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 500;
+        const d = 150;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
 
         // --- 3. GENERASI TERRAIN PROSEDURAL ---
         const worldSize = 300;
-        const segments = 150; // Semakin tinggi, semakin halus (tapi lebih berat)
+        const segments = 150;
         const geometry = new THREE.PlaneGeometry(worldSize, worldSize, segments, segments);
         geometry.rotateX(-Math.PI / 2);
 
@@ -93,53 +90,63 @@
         const colors = [];
         const colorObj = new THREE.Color();
 
-        // Fungsi untuk mendapatkan ketinggian (Y) berdasarkan koordinat X dan Z
-        // Menggunakan layered sine waves untuk simulasi Fractal Brownian Motion (fBM) sederhana
         function getTerrainHeight(x, z) {
             let y = 0;
-            y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;       // Bukit besar
-            y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;   // Bukit sedang
-            y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;       // Detail kecil
+            y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
+            y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
+            y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;
             return y;
         }
 
-        // Generate vertex positions dan colors
         for (let i = 0; i < posAttribute.count; i++) {
             const x = posAttribute.getX(i);
             const z = posAttribute.getZ(i);
             const y = getTerrainHeight(x, z);
-            
             posAttribute.setY(i, y);
 
-            // Pewarnaan berdasarkan ketinggian (Vertex Colors)
-            if (y < -2) {
-                colorObj.setHex(0x2d4c1e); // Hijau tua (Lembah dalam)
-            } else if (y < 3) {
-                colorObj.setHex(0x4a7c2e); // Hijau rumput (Dataran)
-            } else if (y < 6) {
-                colorObj.setHex(0x6b6b6b); // Abu-abu (Batu/Pegunungan)
-            } else {
-                colorObj.setHex(0xffffff); // Putih (Salju di puncak)
-            }
+            if (y < -2) colorObj.setHex(0x2d4c1e);
+            else if (y < 3) colorObj.setHex(0x4a7c2e);
+            else if (y < 6) colorObj.setHex(0x6b6b6b);
+            else colorObj.setHex(0xffffff);
             colors.push(colorObj.r, colorObj.g, colorObj.b);
         }
 
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geometry.computeVertexNormals();
 
-        const material = new THREE.MeshStandardMaterial({ 
-            vertexColors: true, // Gunakan warna yang kita hitung di atas
-            roughness: 0.8,
-            metalness: 0.1,
-            flatShading: true // Memberikan efek "low poly" yang artistik dan performa lebih baik
+        const terrainMaterial = new THREE.MeshStandardMaterial({ 
+            vertexColors: true, roughness: 0.8, metalness: 0.1, flatShading: true
         });
-
-        const terrain = new THREE.Mesh(geometry, material);
+        const terrain = new THREE.Mesh(geometry, terrainMaterial);
         terrain.receiveShadow = true;
         scene.add(terrain);
 
-        // --- 4. OBJEK LINGKUNGAN (POHON SEDERHANA) ---
-        // Menggunakan InstancedMesh untuk performa tinggi (merender 1000+ pohon dengan 1 draw call)
+        // --- 4. WATER PLANE DENGAN EFEK OMBAK ---
+        const waterLevel = -1.5; // Ketinggian air (sesuai lembah terrain)
+        const waterGeo = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2, 80, 80);
+        waterGeo.rotateX(-Math.PI / 2);
+        
+        const waterMat = new THREE.MeshStandardMaterial({
+            color: 0x1e6091,
+            transparent: true,
+            opacity: 0.75,
+            roughness: 0.2,
+            metalness: 0.6,
+            flatShading: true
+        });
+        const water = new THREE.Mesh(waterGeo, waterMat);
+        water.position.y = waterLevel;
+        water.receiveShadow = true;
+        scene.add(water);
+
+        // Simpan posisi awal vertex air untuk animasi
+        const waterPosAttr = waterGeo.attributes.position;
+        const waterOriginalY = new Float32Array(waterPosAttr.count);
+        for (let i = 0; i < waterPosAttr.count; i++) {
+            waterOriginalY[i] = waterPosAttr.getY(i);
+        }
+
+        // --- 5. POHON (INSTANCED MESH) ---
         const treeCount = 800;
         const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
         const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
@@ -155,19 +162,18 @@
             const z = (Math.random() - 0.5) * worldSize * 0.9;
             const y = getTerrainHeight(x, z);
 
-            // Hanya taruh pohon di area dataran rendah/sedang (bukan di air/salju)
-            if (y > -3 && y < 4) {
-                dummy.position.set(x, y + 2.5, z); // +2.5 agar setengah badan pohon masuk ke tanah
-                dummy.scale.setScalar(0.8 + Math.random() * 0.6); // Variasi ukuran
+            if (y > waterLevel + 0.5 && y < 4) { // Hanya di atas air & di bawah batu
+                dummy.position.set(x, y + 2.5, z);
+                dummy.scale.setScalar(0.8 + Math.random() * 0.6);
                 dummy.rotation.y = Math.random() * Math.PI;
                 dummy.updateMatrix();
                 treeMesh.setMatrixAt(treeIndex++, dummy.matrix);
             }
         }
-        treeMesh.count = treeIndex; // Update jumlah pohon yang sebenarnya dirender
+        treeMesh.count = treeIndex;
         scene.add(treeMesh);
 
-        // --- 5. KONTROL PEMAIN & FISIKA ---
+        // --- 6. KONTROL PEMAIN ---
         const controls = new PointerLockControls(camera, document.body);
         const blocker = document.getElementById('blocker');
 
@@ -179,7 +185,7 @@
         let canJump = false;
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
-        const playerHeight = 2.5; // Tinggi mata pemain dari tanah
+        const playerHeight = 2.5;
 
         document.addEventListener('keydown', (e) => {
             switch (e.code) {
@@ -200,22 +206,114 @@
             }
         });
 
-        // --- 6. GAME LOOP ---
+        // --- 7. DAY/NIGHT CYCLE SYSTEM ---
+        let timeOfDay = 8.0; // Mulai dari jam 8 pagi (0-24)
+        const timeSpeed = 0.15; // 1 detik real = 0.15 jam game (1 hari = ~160 detik)
+
+        // Palet warna untuk berbagai waktu
+        const skyColors = {
+            night:     new THREE.Color(0x0a0a2e), // Biru gelap malam
+            dawn:      new THREE.Color(0xff8c42), // Oranye subuh
+            day:       new THREE.Color(0x87CEEB), // Biru siang
+            dusk:      new THREE.Color(0xff6b6b), // Merah senja
+        };
+
+        // Fungsi interpolasi warna langit berdasarkan waktu
+        function getSkyColor(time) {
+            if (time < 5) return skyColors.night;
+            if (time < 7) return skyColors.night.clone().lerp(skyColors.dawn, (time - 5) / 2);
+            if (time < 9) return skyColors.dawn.clone().lerp(skyColors.day, (time - 7) / 2);
+            if (time < 17) return skyColors.day;
+            if (time < 19) return skyColors.day.clone().lerp(skyColors.dusk, (time - 17) / 2);
+            if (time < 21) return skyColors.dusk.clone().lerp(skyColors.night, (time - 19) / 2);
+            return skyColors.night;
+        }
+
+        function getTimePeriod(time) {
+            if (time < 5) return "Tengah Malam";
+            if (time < 7) return "Subuh";
+            if (time < 11) return "Pagi";
+            if (time < 14) return "Siang";
+            if (time < 17) return "Sore";
+            if (time < 19) return "Senja";
+            if (time < 21) return "Maghrib";
+            return "Malam";
+        }
+
+        function formatTime(time) {
+            const hours = Math.floor(time) % 24;
+            const minutes = Math.floor((time - Math.floor(time)) * 60);
+            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+        }
+
+        // Inisialisasi fog
+        scene.fog = new THREE.Fog(skyColors.day, 30, 180);
+        scene.background = skyColors.day.clone();
+
+        // --- 8. GAME LOOP ---
         let prevTime = performance.now();
         const coordsDisplay = document.getElementById('coords');
         const biomeDisplay = document.getElementById('biome');
+        const timeDisplay = document.getElementById('time');
+        const periodDisplay = document.getElementById('period');
 
         function animate() {
             requestAnimationFrame(animate);
 
             const time = performance.now();
-            const delta = Math.min((time - prevTime) / 1000, 0.1); // Cap delta untuk mencegah glitch
+            const delta = Math.min((time - prevTime) / 1000, 0.1);
 
+            // Update waktu
+            timeOfDay += timeSpeed * delta;
+            if (timeOfDay >= 24) timeOfDay -= 24;
+
+            // Update langit & cahaya berdasarkan waktu
+            const currentSkyColor = getSkyColor(timeOfDay);
+            scene.background = currentSkyColor;
+            scene.fog.color = currentSkyColor;
+
+            // Posisi matahari (orbit mengelilingi dunia)
+            // Jam 6 = matahari terbit (timur), jam 18 = terbenam (barat)
+            const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
+            const sunRadius = 200;
+            sunLight.position.set(
+                Math.cos(sunAngle) * sunRadius,
+                Math.sin(sunAngle) * sunRadius,
+                50
+            );
+            sunLight.lookAt(0, 0, 0);
+
+            // Intensitas cahaya & warna matahari
+            const sunHeight = Math.sin(sunAngle); // -1 (tengah malam) sampai +1 (siang)
+            if (sunHeight > 0) {
+                // Siang hari
+                sunLight.intensity = 0.5 + sunHeight * 0.8;
+                sunLight.color.setHex(sunHeight > 0.3 ? 0xffffff : 0xffaa66); // Oranye saat rendah
+                ambientLight.intensity = 0.3 + sunHeight * 0.3;
+            } else {
+                // Malam hari
+                sunLight.intensity = 0.1;
+                sunLight.color.setHex(0x4466aa); // Cahaya bulan biru
+                ambientLight.intensity = 0.15;
+            }
+
+            // Animasi ombak air
+            const waveTime = time * 0.001;
+            for (let i = 0; i < waterPosAttr.count; i++) {
+                const x = waterPosAttr.getX(i);
+                const z = waterPosAttr.getZ(i);
+                const waveY = Math.sin(x * 0.1 + waveTime) * 0.15 + 
+                              Math.cos(z * 0.1 + waveTime * 0.8) * 0.15;
+                waterPosAttr.setY(i, waterOriginalY[i] + waveY);
+            }
+            waterPosAttr.needsUpdate = true;
+            waterGeo.computeVertexNormals();
+
+            // Logika pemain
             if (controls.isLocked) {
-                // Gesekan
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
-                velocity.y -= 25.0 * delta; // Gravitasi
+                velocity.y -= 25.0 * delta;
 
                 direction.z = Number(moveForward) - Number(moveBackward);
                 direction.x = Number(moveRight) - Number(moveLeft);
@@ -227,26 +325,26 @@
                 controls.moveRight(-velocity.x * delta);
                 controls.moveForward(-velocity.z * delta);
                 
-                // Update posisi Y berdasarkan ketinggian terrain di posisi X, Z pemain saat ini
                 const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                const groundLevel = Math.max(terrainY, waterLevel); // Bisa berdiri di air dangkal
                 
                 camera.position.y += velocity.y * delta;
 
-                // Deteksi tanah
-                if (camera.position.y < terrainY + playerHeight) {
+                if (camera.position.y < groundLevel + playerHeight) {
                     velocity.y = 0;
-                    camera.position.y = terrainY + playerHeight;
+                    camera.position.y = groundLevel + playerHeight;
                     canJump = true;
                 }
 
                 // Update UI
                 coordsDisplay.innerText = `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
+                timeDisplay.innerText = formatTime(timeOfDay);
+                periodDisplay.innerText = getTimePeriod(timeOfDay);
                 
-                // Deteksi Biome sederhana berdasarkan ketinggian
-                if (terrainY > 6) biomeDisplay.innerText = "Pegunungan Bersalju (Dingin)";
+                if (terrainY > 6) biomeDisplay.innerText = "Pegunungan Bersalju";
                 else if (terrainY > 3) biomeDisplay.innerText = "Dataran Tinggi Berbatu";
-                else if (terrainY > -2) biomeDisplay.innerText = "Hutan / Dataran Rumput";
-                else biomeDisplay.innerText = "Lembah Sungai (Basah)";
+                else if (terrainY > waterLevel) biomeDisplay.innerText = "Hutan / Dataran Rumput";
+                else biomeDisplay.innerText = "Perairan / Lembah";
             }
 
             prevTime = time;
@@ -259,7 +357,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // Set posisi awal di tengah
         camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
         animate();
     </script>
