@@ -3,14 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Open World - Day/Night & Water</title>
+    <title>WILDLANDS: Open World + Supabase Save</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
         #ui-layer {
             position: absolute; top: 10px; left: 10px; color: #00ff00; 
             background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
-            pointer-events: none; min-width: 220px;
+            pointer-events: none; min-width: 240px;
         }
+        #ui-layer button {
+            pointer-events: auto; background: #004400; color: #00ff00; 
+            border: 1px solid #00ff00; padding: 5px 10px; margin-top: 5px;
+            cursor: pointer; font-family: inherit; width: 100%;
+        }
+        #ui-layer button:hover { background: #006600; }
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
             background: rgba(255, 255, 255, 0.9); border-radius: 50%;
@@ -23,6 +29,12 @@
             flex-direction: column; justify-content: center; align-items: center;
             z-index: 999; cursor: pointer; text-align: center;
         }
+        #notification {
+            position: absolute; bottom: 20px; right: 20px; 
+            background: rgba(0, 255, 0, 0.2); color: #00ff00;
+            padding: 10px 20px; border-radius: 5px; border: 1px solid #00ff00;
+            opacity: 0; transition: opacity 0.5s; pointer-events: none;
+        }
     </style>
 </head>
 <body>
@@ -31,21 +43,29 @@
         <h3>WILDLANDS: LAST SIGNAL</h3>
         <p>Waktu: <span id="time">06:00</span> | <span id="period">Pagi</span></p>
         <p>Biome: <span id="biome">Unknown</span></p>
-        <p>Koordinat: <span id="coords">0, 0, 0</span></p>
+        <p>Pos: <span id="coords">0, 0, 0</span></p>
+        <hr style="border-color: #004400;">
+        <button id="btn-save">💾 Simpan Game (Save)</button>
+        <button id="btn-load">🔄 Muat Game (Load)</button>
+        <p style="font-size: 10px; color: #888; margin-top: 10px;">Auto-save setiap 30 detik</p>
     </div>
     <div id="crosshair"></div>
+    <div id="notification">Game Disimpan!</div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI EKSPLORASI</h1>
         <p>Gerak: W, A, S, D | Lompat: SPASI | Lihat: Mouse</p>
         <p>Tekan ESC untuk melepaskan kursor.</p>
+        <p id="load-status" style="color: #ffff00; margin-top: 20px;">Mencoba memuat data...</p>
     </div>
 
+    <!-- Import Three.js -->
     <script type="importmap">
         {
             "imports": {
                 "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
             }
         }
     </script>
@@ -53,8 +73,22 @@
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { createClient } from '@supabase/supabase-js';
 
-        // --- 1. SETUP DASAR ---
+        // --- 1. INISIALISASI SUPABASE ---
+        const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sc2lid2loZnplaHFjZGF3cmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxMTcwNTEsImV4cCI6MjEwMzY5MzA1MX0.faKWNZqTLE6nEH6nPw0L4uFepTy6ZvqrZDy2BaHcWxs';
+        const supabase = createClient(supabaseUrl, supabaseKey);
+
+        // Buat atau ambil Player ID unik dari localStorage
+        let playerId = localStorage.getItem('wildlands_player_id');
+        if (!playerId) {
+            playerId = 'player_' + Math.random().toString(36).substring(2, 11);
+            localStorage.setItem('wildlands_player_id', playerId);
+        }
+        console.log("Player ID:", playerId);
+
+        // --- 2. SETUP THREE.JS DASAR ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -63,7 +97,6 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
-        // --- 2. PENCAHAYAAN (akan diupdate oleh Day/Night Cycle) ---
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
         scene.add(ambientLight);
 
@@ -71,19 +104,14 @@
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 2048;
         sunLight.shadow.mapSize.height = 2048;
-        sunLight.shadow.camera.near = 0.5;
-        sunLight.shadow.camera.far = 500;
         const d = 150;
-        sunLight.shadow.camera.left = -d;
-        sunLight.shadow.camera.right = d;
-        sunLight.shadow.camera.top = d;
-        sunLight.shadow.camera.bottom = -d;
+        sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
         scene.add(sunLight);
 
-        // --- 3. GENERASI TERRAIN PROSEDURAL ---
+        // --- 3. TERRAIN & AIR ---
         const worldSize = 300;
-        const segments = 150;
-        const geometry = new THREE.PlaneGeometry(worldSize, worldSize, segments, segments);
+        const geometry = new THREE.PlaneGeometry(worldSize, worldSize, 150, 150);
         geometry.rotateX(-Math.PI / 2);
 
         const posAttribute = geometry.attributes.position;
@@ -114,46 +142,31 @@
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geometry.computeVertexNormals();
 
-        const terrainMaterial = new THREE.MeshStandardMaterial({ 
-            vertexColors: true, roughness: 0.8, metalness: 0.1, flatShading: true
-        });
-        const terrain = new THREE.Mesh(geometry, terrainMaterial);
+        const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ 
+            vertexColors: true, roughness: 0.8, flatShading: true
+        }));
         terrain.receiveShadow = true;
         scene.add(terrain);
 
-        // --- 4. WATER PLANE DENGAN EFEK OMBAK ---
-        const waterLevel = -1.5; // Ketinggian air (sesuai lembah terrain)
+        const waterLevel = -1.5;
         const waterGeo = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2, 80, 80);
         waterGeo.rotateX(-Math.PI / 2);
-        
-        const waterMat = new THREE.MeshStandardMaterial({
-            color: 0x1e6091,
-            transparent: true,
-            opacity: 0.75,
-            roughness: 0.2,
-            metalness: 0.6,
-            flatShading: true
-        });
+        const waterMat = new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true });
         const water = new THREE.Mesh(waterGeo, waterMat);
         water.position.y = waterLevel;
-        water.receiveShadow = true;
         scene.add(water);
-
-        // Simpan posisi awal vertex air untuk animasi
         const waterPosAttr = waterGeo.attributes.position;
         const waterOriginalY = new Float32Array(waterPosAttr.count);
-        for (let i = 0; i < waterPosAttr.count; i++) {
-            waterOriginalY[i] = waterPosAttr.getY(i);
-        }
+        for (let i = 0; i < waterPosAttr.count; i++) waterOriginalY[i] = waterPosAttr.getY(i);
 
-        // --- 5. POHON (INSTANCED MESH) ---
+        // --- 4. POHON (INSTANCED) ---
         const treeCount = 800;
-        const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
-        const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
-        const treeMesh = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
-        treeMesh.castShadow = true;
-        treeMesh.receiveShadow = true;
-
+        const treeMesh = new THREE.InstancedMesh(
+            new THREE.ConeGeometry(1.5, 5, 6),
+            new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true }),
+            treeCount
+        );
+        treeMesh.castShadow = true; treeMesh.receiveShadow = true;
         const dummy = new THREE.Object3D();
         let treeIndex = 0;
 
@@ -161,8 +174,7 @@
             const x = (Math.random() - 0.5) * worldSize * 0.9;
             const z = (Math.random() - 0.5) * worldSize * 0.9;
             const y = getTerrainHeight(x, z);
-
-            if (y > waterLevel + 0.5 && y < 4) { // Hanya di atas air & di bawah batu
+            if (y > waterLevel + 0.5 && y < 4) {
                 dummy.position.set(x, y + 2.5, z);
                 dummy.scale.setScalar(0.8 + Math.random() * 0.6);
                 dummy.rotation.y = Math.random() * Math.PI;
@@ -173,9 +185,10 @@
         treeMesh.count = treeIndex;
         scene.add(treeMesh);
 
-        // --- 6. KONTROL PEMAIN ---
+        // --- 5. KONTROL PEMAIN ---
         const controls = new PointerLockControls(camera, document.body);
         const blocker = document.getElementById('blocker');
+        const loadStatus = document.getElementById('load-status');
 
         blocker.addEventListener('click', () => controls.lock());
         controls.addEventListener('lock', () => blocker.style.display = 'none');
@@ -188,37 +201,28 @@
         const playerHeight = 2.5;
 
         document.addEventListener('keydown', (e) => {
-            switch (e.code) {
-                case 'KeyW': moveForward = true; break;
-                case 'KeyA': moveLeft = true; break;
-                case 'KeyS': moveBackward = true; break;
-                case 'KeyD': moveRight = true; break;
-                case 'Space': if (canJump) { velocity.y += 8; canJump = false; } break;
-            }
+            if (e.code === 'KeyW') moveForward = true;
+            if (e.code === 'KeyA') moveLeft = true;
+            if (e.code === 'KeyS') moveBackward = true;
+            if (e.code === 'KeyD') moveRight = true;
+            if (e.code === 'Space' && canJump) { velocity.y += 8; canJump = false; }
         });
 
         document.addEventListener('keyup', (e) => {
-            switch (e.code) {
-                case 'KeyW': moveForward = false; break;
-                case 'KeyA': moveLeft = false; break;
-                case 'KeyS': moveBackward = false; break;
-                case 'KeyD': moveRight = false; break;
-            }
+            if (e.code === 'KeyW') moveForward = false;
+            if (e.code === 'KeyA') moveLeft = false;
+            if (e.code === 'KeyS') moveBackward = false;
+            if (e.code === 'KeyD') moveRight = false;
         });
 
-        // --- 7. DAY/NIGHT CYCLE SYSTEM ---
-        let timeOfDay = 8.0; // Mulai dari jam 8 pagi (0-24)
-        const timeSpeed = 0.15; // 1 detik real = 0.15 jam game (1 hari = ~160 detik)
-
-        // Palet warna untuk berbagai waktu
+        // --- 6. DAY/NIGHT CYCLE ---
+        let timeOfDay = 8.0;
+        const timeSpeed = 0.15;
         const skyColors = {
-            night:     new THREE.Color(0x0a0a2e), // Biru gelap malam
-            dawn:      new THREE.Color(0xff8c42), // Oranye subuh
-            day:       new THREE.Color(0x87CEEB), // Biru siang
-            dusk:      new THREE.Color(0xff6b6b), // Merah senja
+            night: new THREE.Color(0x0a0a2e), dawn: new THREE.Color(0xff8c42),
+            day: new THREE.Color(0x87CEEB), dusk: new THREE.Color(0xff6b6b),
         };
 
-        // Fungsi interpolasi warna langit berdasarkan waktu
         function getSkyColor(time) {
             if (time < 5) return skyColors.night;
             if (time < 7) return skyColors.night.clone().lerp(skyColors.dawn, (time - 5) / 2);
@@ -230,25 +234,91 @@
         }
 
         function getTimePeriod(time) {
-            if (time < 5) return "Tengah Malam";
-            if (time < 7) return "Subuh";
-            if (time < 11) return "Pagi";
-            if (time < 14) return "Siang";
-            if (time < 17) return "Sore";
-            if (time < 19) return "Senja";
-            if (time < 21) return "Maghrib";
-            return "Malam";
+            if (time < 5) return "Tengah Malam"; if (time < 7) return "Subuh";
+            if (time < 11) return "Pagi"; if (time < 14) return "Siang";
+            if (time < 17) return "Sore"; if (time < 19) return "Senja";
+            if (time < 21) return "Maghrib"; return "Malam";
         }
 
         function formatTime(time) {
-            const hours = Math.floor(time) % 24;
-            const minutes = Math.floor((time - Math.floor(time)) * 60);
-            return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+            const h = Math.floor(time) % 24;
+            const m = Math.floor((time - Math.floor(time)) * 60);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         }
 
-        // Inisialisasi fog
         scene.fog = new THREE.Fog(skyColors.day, 30, 180);
         scene.background = skyColors.day.clone();
+
+        // --- 7. FUNGSI SAVE & LOAD SUPABASE ---
+        function showNotification(text, isError = false) {
+            const notif = document.getElementById('notification');
+            notif.innerText = text;
+            notif.style.background = isError ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 255, 0, 0.2)';
+            notif.style.color = isError ? '#ff4444' : '#00ff00';
+            notif.style.borderColor = isError ? '#ff4444' : '#00ff00';
+            notif.style.opacity = 1;
+            setTimeout(() => { notif.style.opacity = 0; }, 3000);
+        }
+
+        async function saveGame() {
+            showNotification("Menyimpan...");
+            const saveData = {
+                player_id: playerId,
+                pos_x: camera.position.x,
+                pos_y: camera.position.y,
+                pos_z: camera.position.z,
+                time_of_day: timeOfDay,
+                health: 100, hunger: 100, thirst: 100
+            };
+
+            const { error } = await supabase
+                .from('players')
+                .upsert(saveData, { onConflict: 'player_id' });
+
+            if (error) {
+                console.error('Save error:', error);
+                showNotification("Gagal menyimpan!", true);
+            } else {
+                showNotification("✅ Game Berhasil Disimpan!");
+            }
+        }
+
+        async function loadGame() {
+            showNotification("Memuat...");
+            const { data, error } = await supabase
+                .from('players')
+                .select('*')
+                .eq('player_id', playerId)
+                .single();
+
+            if (data && !error) {
+                camera.position.set(data.pos_x, data.pos_y, data.pos_z);
+                timeOfDay = data.time_of_day || 8.0;
+                showNotification("✅ Game Berhasil Dimuat!");
+                loadStatus.innerText = "Data ditemukan! Klik untuk mulai.";
+                return true;
+            } else {
+                console.log('No save data found, starting fresh.');
+                loadStatus.innerText = "Data tidak ditemukan. Memulai game baru.";
+                camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
+                return false;
+            }
+        }
+
+        // Event Listener Tombol UI
+        document.getElementById('btn-save').addEventListener('click', (e) => {
+            e.stopPropagation(); // Mencegah pointer lock aktif saat klik tombol
+            saveGame();
+        });
+        document.getElementById('btn-load').addEventListener('click', (e) => {
+            e.stopPropagation();
+            loadGame();
+        });
+
+        // Auto-save setiap 30 detik
+        setInterval(() => {
+            if (controls.isLocked) saveGame();
+        }, 30000);
 
         // --- 8. GAME LOOP ---
         let prevTime = performance.now();
@@ -257,9 +327,17 @@
         const timeDisplay = document.getElementById('time');
         const periodDisplay = document.getElementById('period');
 
+        // Coba load data saat startup
+        loadGame().then(() => {
+            // Pastikan posisi Y benar setelah load
+            const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+            if (camera.position.y < terrainY + playerHeight) {
+                camera.position.y = terrainY + playerHeight;
+            }
+        });
+
         function animate() {
             requestAnimationFrame(animate);
-
             const time = performance.now();
             const delta = Math.min((time - prevTime) / 1000, 0.1);
 
@@ -267,43 +345,33 @@
             timeOfDay += timeSpeed * delta;
             if (timeOfDay >= 24) timeOfDay -= 24;
 
-            // Update langit & cahaya berdasarkan waktu
+            // Update langit & cahaya
             const currentSkyColor = getSkyColor(timeOfDay);
             scene.background = currentSkyColor;
             scene.fog.color = currentSkyColor;
 
-            // Posisi matahari (orbit mengelilingi dunia)
-            // Jam 6 = matahari terbit (timur), jam 18 = terbenam (barat)
             const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
             const sunRadius = 200;
-            sunLight.position.set(
-                Math.cos(sunAngle) * sunRadius,
-                Math.sin(sunAngle) * sunRadius,
-                50
-            );
+            sunLight.position.set(Math.cos(sunAngle) * sunRadius, Math.sin(sunAngle) * sunRadius, 50);
             sunLight.lookAt(0, 0, 0);
 
-            // Intensitas cahaya & warna matahari
-            const sunHeight = Math.sin(sunAngle); // -1 (tengah malam) sampai +1 (siang)
+            const sunHeight = Math.sin(sunAngle);
             if (sunHeight > 0) {
-                // Siang hari
                 sunLight.intensity = 0.5 + sunHeight * 0.8;
-                sunLight.color.setHex(sunHeight > 0.3 ? 0xffffff : 0xffaa66); // Oranye saat rendah
+                sunLight.color.setHex(sunHeight > 0.3 ? 0xffffff : 0xffaa66);
                 ambientLight.intensity = 0.3 + sunHeight * 0.3;
             } else {
-                // Malam hari
                 sunLight.intensity = 0.1;
-                sunLight.color.setHex(0x4466aa); // Cahaya bulan biru
+                sunLight.color.setHex(0x4466aa);
                 ambientLight.intensity = 0.15;
             }
 
-            // Animasi ombak air
+            // Animasi ombak
             const waveTime = time * 0.001;
             for (let i = 0; i < waterPosAttr.count; i++) {
                 const x = waterPosAttr.getX(i);
                 const z = waterPosAttr.getZ(i);
-                const waveY = Math.sin(x * 0.1 + waveTime) * 0.15 + 
-                              Math.cos(z * 0.1 + waveTime * 0.8) * 0.15;
+                const waveY = Math.sin(x * 0.1 + waveTime) * 0.15 + Math.cos(z * 0.1 + waveTime * 0.8) * 0.15;
                 waterPosAttr.setY(i, waterOriginalY[i] + waveY);
             }
             waterPosAttr.needsUpdate = true;
@@ -326,7 +394,7 @@
                 controls.moveForward(-velocity.z * delta);
                 
                 const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
-                const groundLevel = Math.max(terrainY, waterLevel); // Bisa berdiri di air dangkal
+                const groundLevel = Math.max(terrainY, waterLevel);
                 
                 camera.position.y += velocity.y * delta;
 
@@ -336,7 +404,6 @@
                     canJump = true;
                 }
 
-                // Update UI
                 coordsDisplay.innerText = `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
                 timeDisplay.innerText = formatTime(timeOfDay);
                 periodDisplay.innerText = getTimePeriod(timeOfDay);
@@ -357,7 +424,6 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
         animate();
     </script>
 </body>
