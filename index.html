@@ -132,7 +132,7 @@
         WASD: Gerak | SPACE: Lompat | SHIFT: Sprint<br>
         E: Interaksi | C: Craft Api | F: Letakkan<br>
         <span style="color:#ffaa00">T: Craft Panah (2 Kayu → 3 Panah)</span><br>
-        <span style="color:#ffaa00">1: Batu | 2: Panah | V: Tembak</span><br>
+        <span style="color:#ffaa00">1: Batu | 2: Panah | Klik Kiri: Tembak</span><br>
         Q: Save | R: Load | X: Batal
     </div>
 
@@ -140,7 +140,7 @@
         <h1>KLIK UNTUK MULAI</h1>
         <p>⚠️ Drone Pencari bisa <span style="color:#ff4444">DIHANCURKAN</span>!</p>
         <p>Pungut batu di tanah atau craft panah dari kayu.</p>
-        <p>Tekan <span style="color:#ffaa00">V</span> untuk menembak.</p>
+        <p>Tekan <span style="color:#ffaa00">KLIK KIRI</span> untuk menembak.</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
 
@@ -992,10 +992,15 @@
                 showNotification("🏹 Panah dipilih");
             }
             
-            // TEMBAK 'V'
-            if (e.code === 'KeyV' && controls.isLocked && !isPlacingCampfire) {
-                shootWeapon();
-            }
+            // (HAPUS bagian KeyV ini sepenuhnya)
+
+            // TEMBAK - KLIK KIRI MOUSE
+                document.addEventListener('mousedown', (e) => {
+                    // Hanya klik kiri (button 0), saat game aktif, dan bukan mode placement
+                    if (e.button === 0 && controls.isLocked && !isPlacingCampfire) {
+                        shootWeapon();
+                    }
+                });
             
             // CRAFT PANAH 'T' (2 kayu → 3 panah)
             if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
