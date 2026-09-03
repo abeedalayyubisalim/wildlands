@@ -48,7 +48,7 @@
             padding: 10px; border-radius: 5px; pointer-events: none;
         }
         #placement-status {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, 40px);
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
             font-size: 14px; font-weight: bold; text-shadow: 1px 1px 2px black;
             display: none; pointer-events: none;
         }
@@ -111,7 +111,7 @@
             transition: opacity 0.3s;
         }
         #chunk-info {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -80px);
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
             color: #00ffff; font-size: 12px; font-weight: bold;
             background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 3px;
             border: 1px solid #00ffff; opacity: 0; pointer-events: none;
@@ -132,7 +132,6 @@
         }
         #pause-menu button:hover { background: #00cc00; }
         
-        /* NPC DIALOG */
         #npc-dialog {
             position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.9); color: white; padding: 20px;
@@ -148,7 +147,6 @@
         }
         #npc-dialog button:hover { background: #ffcc00; }
         
-        /* BOSS HP BAR */
         #boss-hud {
             position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
             background: rgba(0,0,0,0.8); color: #ff0000; padding: 10px 20px;
@@ -186,13 +184,13 @@
         <div class="bar-container"><div id="hunger-bar"></div></div>
         <p style="margin: 2px 0;">💧 Haus: <span id="thirst-text">100</span></p>
         <div class="bar-container"><div id="thirst-bar"></div></div>
-        <p style="margin: 2px 0;"> <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> | 🪨 <span id="inv-stones">0</span> | 🥩 <span id="inv-meat">0</span></p>
+        <p style="margin: 2px 0;">🪵 <span id="inv-wood">0</span> |  <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> | 🪨 <span id="inv-stones">0</span> |  <span id="inv-meat">0</span></p>
         <p style="margin: 2px 0;">🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
         <p style="margin: 2px 0; color: #ff4444;">💀 Drone: <span id="kill-count">0</span> | 🦌 Hewan: <span id="animal-count">0</span></p>
     </div>
     
     <div id="quest-hud">
-        <div style="font-weight: bold;"> MISI: <span id="quest-title">Ancaman Udara</span></div>
+        <div style="font-weight: bold;">📜 MISI: <span id="quest-title">Ancaman Udara</span></div>
         <div style="font-size: 12px; color: #ccc;" id="quest-desc">Hancurkan 3 Drone + 1 Boss</div>
         <div style="font-weight: bold; font-size: 16px;" id="quest-progress">0 / 4</div>
     </div>
@@ -207,7 +205,7 @@
     <div id="campfire-bonus">🔥 Istirahat<br>Status Pulih</div>
     <div id="kill-counter">💀 KILL: <span id="kill-display">0</span></div>
     <div id="autosave-indicator">💾 Menyimpan...</div>
-    <div id="chunk-info">Chunk: 0, 0</div>
+    <div id="chunk-info">Chunk: 0, 0 | Loaded: 0</div>
     
     <div id="weapon-hud">
         <div class="weapon-name" id="weapon-name">👊 Tangan Kosong</div>
@@ -225,7 +223,7 @@
         E: Interaksi | C: Craft Api | F: Letakkan<br>
         T: Craft Panah | G: Craft Panah Api<br>
         1: Batu | 2: Panah | 3: Panah Api<br>
-        Q: Save | R: Load | ESC: Pause
+        H: Makan Daging | Q: Save | R: Load | ESC: Pause
     </div>
 
     <div id="npc-dialog">
@@ -242,7 +240,7 @@
 
     <div id="blocker">
         <h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1>
-        <p style="font-size: 16px;"> Survival 3D dengan Wildlife, Village & Boss</p>
+        <p style="font-size: 16px;">🎮 Survival 3D dengan Wildlife, Village & Boss</p>
         <p> Buru hewan untuk daging | ️ Temui NPC di perkampungan</p>
         <p>👹 Kalahkan <span style="color:#ff4444">Drone Induk</span> untuk menyelesaikan misi!</p>
         <p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p>
@@ -253,7 +251,7 @@
         <h2>️ PAUSED</h2>
         <p>Game dijeda</p>
         <button onclick="resumeGame()">▶️ Lanjutkan</button>
-        <button onclick="saveAndResume()"> Save & Lanjut</button>
+        <button onclick="saveAndResume()">💾 Save & Lanjut</button>
     </div>
 
     <script type="importmap">
@@ -432,11 +430,10 @@
         sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
         scene.add(sunLight);
 
-        // ============ SKY SYSTEM (Awan, Bulan, Bintang) ============
+        // ============ SKY SYSTEM ============
         const skyGroup = new THREE.Group();
         scene.add(skyGroup);
         
-        // Awan
         const clouds = [];
         function createClouds() {
             const cloudGeo = new THREE.SphereGeometry(8, 8, 8);
@@ -462,7 +459,6 @@
         }
         createClouds();
 
-        // Bintang
         const starsGeo = new THREE.BufferGeometry();
         const starsPositions = [];
         for (let i = 0; i < 500; i++) {
@@ -480,7 +476,6 @@
         const stars = new THREE.Points(starsGeo, starsMat);
         skyGroup.add(stars);
 
-        // Bulan
         const moonGeo = new THREE.SphereGeometry(15, 16, 16);
         const moonMat = new THREE.MeshBasicMaterial({ color: 0xeeeeff });
         const moon = new THREE.Mesh(moonGeo, moonMat);
@@ -493,7 +488,6 @@
             y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
             y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
             y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;
-            // Gunung di area tertentu
             const distFromCenter = Math.sqrt(x * x + z * z);
             if (distFromCenter > 200 && distFromCenter < 350) {
                 y += Math.max(0, 20 - distFromCenter * 0.05) * 2;
@@ -541,13 +535,20 @@
             water.position.y = -1.5;
             chunkGroup.add(water);
 
+            // POHON BERAGAM
             const treeCount = 80;
-            const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
-            const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
-            const treeMesh = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
-            treeMesh.castShadow = true; treeMesh.receiveShadow = true;
+            const treeGeo1 = new THREE.ConeGeometry(1.5, 5, 6);
+            const treeGeo2 = new THREE.ConeGeometry(2, 6, 8);
+            const treeMat1 = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
+            const treeMat2 = new THREE.MeshStandardMaterial({ color: 0x2d4a1e, flatShading: true });
+            const treeMesh1 = new THREE.InstancedMesh(treeGeo1, treeMat1, 40);
+            const treeMesh2 = new THREE.InstancedMesh(treeGeo2, treeMat2, 40);
+            treeMesh1.castShadow = true; treeMesh1.receiveShadow = true;
+            treeMesh2.castShadow = true; treeMesh2.receiveShadow = true;
+            
             const dummy = new THREE.Object3D();
-            let treeIndex = 0;
+            let treeIndex1 = 0, treeIndex2 = 0;
+            
             for (let i = 0; i < treeCount; i++) {
                 const x = (Math.random() - 0.5) * CHUNK_SIZE;
                 const z = (Math.random() - 0.5) * CHUNK_SIZE;
@@ -559,14 +560,44 @@
                     dummy.scale.setScalar(0.8 + Math.random() * 0.6);
                     dummy.rotation.y = Math.random() * Math.PI;
                     dummy.updateMatrix();
-                    treeMesh.setMatrixAt(treeIndex++, dummy.matrix);
+                    if (i % 2 === 0 && treeIndex1 < 40) {
+                        treeMesh1.setMatrixAt(treeIndex1++, dummy.matrix);
+                    } else if (treeIndex2 < 40) {
+                        treeMesh2.setMatrixAt(treeIndex2++, dummy.matrix);
+                    }
                 }
             }
-            treeMesh.count = treeIndex;
-            chunkGroup.add(treeMesh);
+            treeMesh1.count = treeIndex1;
+            treeMesh2.count = treeIndex2;
+            chunkGroup.add(treeMesh1);
+            chunkGroup.add(treeMesh2);
+
+            // SEMAK-SEMAK (Bushes)
+            const bushCount = 30;
+            const bushGeo = new THREE.SphereGeometry(1, 6, 6);
+            const bushMat = new THREE.MeshStandardMaterial({ color: 0x3d6b2e, flatShading: true });
+            const bushMesh = new THREE.InstancedMesh(bushGeo, bushMat, bushCount);
+            bushMesh.castShadow = true;
+            let bushIndex = 0;
+            
+            for (let i = 0; i < bushCount; i++) {
+                const x = (Math.random() - 0.5) * CHUNK_SIZE;
+                const z = (Math.random() - 0.5) * CHUNK_SIZE;
+                const worldX = x + cx * CHUNK_SIZE;
+                const worldZ = z + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(worldX, worldZ);
+                if (y > -1 && y < 3) {
+                    dummy.position.set(x, y + 0.5, z);
+                    dummy.scale.setScalar(0.5 + Math.random() * 0.5);
+                    dummy.updateMatrix();
+                    bushMesh.setMatrixAt(bushIndex++, dummy.matrix);
+                }
+            }
+            bushMesh.count = bushIndex;
+            chunkGroup.add(bushMesh);
 
             scene.add(chunkGroup);
-            chunks.set(key, { group: chunkGroup, terrain, water, treeMesh, cx, cz });
+            chunks.set(key, { group: chunkGroup, terrain, water, treeMesh1, treeMesh2, bushMesh, cx, cz });
         }
 
         function removeChunk(cx, cz) {
@@ -613,14 +644,14 @@
             setTimeout(() => { chunkInfo.style.opacity = 0; }, 2000);
         }
 
-        // ============ ANIMALS (Rusa & Kelinci) ============
+        // ============ ANIMALS (Rusa & Kelinci - Lebih Detail) ============
         const animals = [];
         const animalGroup = new THREE.Group();
         scene.add(animalGroup);
 
         class Animal {
             constructor(type, pos) {
-                this.type = type; // 'deer' atau 'rabbit'
+                this.type = type;
                 this.group = new THREE.Group();
                 this.alive = true;
                 this.hp = type === 'deer' ? 30 : 15;
@@ -639,48 +670,93 @@
 
             buildModel() {
                 if (this.type === 'deer') {
-                    // Body
-                    const bodyGeo = new THREE.BoxGeometry(1.5, 1, 2.5);
+                    // Body lebih detail
+                    const bodyGeo = new THREE.BoxGeometry(1.2, 0.9, 2);
                     const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
                     const body = new THREE.Mesh(bodyGeo, bodyMat);
-                    body.position.y = 1.5;
+                    body.position.y = 1.3;
                     body.castShadow = true;
                     this.group.add(body);
                     
+                    // Neck
+                    const neckGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.8, 8);
+                    const neck = new THREE.Mesh(neckGeo, bodyMat);
+                    neck.position.set(0, 1.8, 1.2);
+                    neck.rotation.x = -0.3;
+                    neck.castShadow = true;
+                    this.group.add(neck);
+                    
                     // Head
-                    const headGeo = new THREE.BoxGeometry(0.8, 0.8, 1);
+                    const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.9);
                     const head = new THREE.Mesh(headGeo, bodyMat);
-                    head.position.set(0, 2.2, 1.5);
+                    head.position.set(0, 2.2, 1.6);
                     head.castShadow = true;
                     this.group.add(head);
                     
+                    // Antlers
+                    const antlerGeo = new THREE.CylinderGeometry(0.05, 0.1, 0.5, 6);
+                    const antlerMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
+                    const antler1 = new THREE.Mesh(antlerGeo, antlerMat);
+                    antler1.position.set(-0.2, 2.6, 1.6);
+                    antler1.rotation.z = 0.3;
+                    this.group.add(antler1);
+                    const antler2 = new THREE.Mesh(antlerGeo, antlerMat);
+                    antler2.position.set(0.2, 2.6, 1.6);
+                    antler2.rotation.z = -0.3;
+                    this.group.add(antler2);
+                    
                     // Legs
-                    const legGeo = new THREE.BoxGeometry(0.3, 1.5, 0.3);
+                    const legGeo = new THREE.CylinderGeometry(0.15, 0.1, 1.2, 8);
                     const legMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
-                    const legPositions = [[-0.5, 0.75, 0.8], [0.5, 0.75, 0.8], [-0.5, 0.75, -0.8], [0.5, 0.75, -0.8]];
+                    const legPositions = [[-0.4, 0.6, 0.7], [0.4, 0.6, 0.7], [-0.4, 0.6, -0.7], [0.4, 0.6, -0.7]];
                     legPositions.forEach(pos => {
                         const leg = new THREE.Mesh(legGeo, legMat);
                         leg.position.set(...pos);
                         leg.castShadow = true;
                         this.group.add(leg);
                     });
-                } else { // rabbit
-                    const bodyGeo = new THREE.SphereGeometry(0.5, 8, 8);
+                    
+                    // Tail
+                    const tailGeo = new THREE.SphereGeometry(0.15, 6, 6);
+                    const tail = new THREE.Mesh(tailGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                    tail.position.set(0, 1.5, -1);
+                    this.group.add(tail);
+                } else { // rabbit - lebih detail
+                    const bodyGeo = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
                     const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
                     const body = new THREE.Mesh(bodyGeo, bodyMat);
-                    body.position.y = 0.5;
+                    body.position.y = 0.8;
+                    body.rotation.x = Math.PI / 2;
                     body.castShadow = true;
                     this.group.add(body);
                     
                     // Ears
-                    const earGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.6, 6);
+                    const earGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6);
                     const earMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
                     const ear1 = new THREE.Mesh(earGeo, earMat);
-                    ear1.position.set(-0.15, 1, 0);
+                    ear1.position.set(-0.15, 1.3, 0);
+                    ear1.rotation.z = 0.2;
                     this.group.add(ear1);
                     const ear2 = new THREE.Mesh(earGeo, earMat);
-                    ear2.position.set(0.15, 1, 0);
+                    ear2.position.set(0.15, 1.3, 0);
+                    ear2.rotation.z = -0.2;
                     this.group.add(ear2);
+                    
+                    // Eyes
+                    const eyeGeo = new THREE.SphereGeometry(0.05, 4, 4);
+                    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+                    eye1.position.set(-0.2, 1.1, 0.35);
+                    this.group.add(eye1);
+                    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+                    eye2.position.set(0.2, 1.1, 0.35);
+                    this.group.add(eye2);
+                    
+                    // Tail
+                    const tailGeo = new THREE.SphereGeometry(0.1, 4, 4);
+                    const tail = new THREE.Mesh(tailGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                    tail.position.set(0, 0.9, -0.4);
+                    this.group.add(tail);
                 }
             }
 
@@ -696,12 +772,11 @@
             die() {
                 this.alive = false;
                 this.group.visible = false;
-                this.respawnTimer = 30; // 30 detik respawn
+                this.respawnTimer = 30;
                 SoundManager.play('animal_death');
                 totalAnimals++;
                 updateAnimalCounter();
                 
-                // Drop daging
                 inventory.meat = (inventory.meat || 0) + this.meatDrop;
                 updateUI();
                 showNotification(`🥩 +${this.meatDrop} Daging!`, false);
@@ -722,14 +797,12 @@
 
                 const distToPlayer = this.group.position.distanceTo(playerPos);
                 
-                // Flee jika pemain dekat
                 if (distToPlayer < this.fleeRadius) {
                     const fleeDir = new THREE.Vector3().subVectors(this.group.position, playerPos).normalize();
                     this.group.position.x += fleeDir.x * this.speed * delta;
                     this.group.position.z += fleeDir.z * this.speed * delta;
                     this.group.lookAt(this.group.position.x + fleeDir.x, this.group.position.y, this.group.position.z + fleeDir.z);
                 } else {
-                    // Wander
                     this.wanderTimer -= delta;
                     if (this.wanderTimer <= 0) {
                         this.wanderTimer = 3 + Math.random() * 4;
@@ -747,7 +820,6 @@
                     }
                 }
 
-                // Batasi ke area home
                 const distFromHome = this.group.position.distanceTo(this.homePos);
                 if (distFromHome > 30) {
                     const dirHome = new THREE.Vector3().subVectors(this.homePos, this.group.position).normalize();
@@ -757,21 +829,20 @@
             }
         }
 
-        // Spawn hewan di area aman (dekat spawn)
         function spawnAnimals() {
             const deerPositions = [
-                new THREE.Vector3(20, 0, 20),
-                new THREE.Vector3(-25, 0, 15),
-                new THREE.Vector3(15, 0, -30),
-                new THREE.Vector3(-20, 0, -25)
+                new THREE.Vector3(520, 0, 520),
+                new THREE.VectorSet(475, 0, 515),
+                new THREE.Vector3(515, 0, 470),
+                new THREE.Vector3(480, 0, 475)
             ];
             const rabbitPositions = [
-                new THREE.Vector3(10, 0, 10),
-                new THREE.Vector3(-15, 0, 20),
-                new THREE.Vector3(25, 0, -15),
-                new THREE.Vector3(-10, 0, -20),
-                new THREE.Vector3(30, 0, 5),
-                new THREE.Vector3(-30, 0, -10)
+                new THREE.Vector3(510, 0, 510),
+                new THREE.Vector3(485, 0, 520),
+                new THREE.Vector3(525, 0, 485),
+                new THREE.Vector3(490, 0, 480),
+                new THREE.Vector3(530, 0, 505),
+                new THREE.Vector3(470, 0, 490)
             ];
             
             deerPositions.forEach(pos => {
@@ -793,7 +864,6 @@
         function createCave(pos) {
             const cave = new THREE.Group();
             
-            // Gua = struktur batu besar dengan lubang
             const rockGeo = new THREE.DodecahedronGeometry(8, 1);
             const rockMat = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true, roughness: 0.9 });
             const rock = new THREE.Mesh(rockGeo, rockMat);
@@ -801,7 +871,6 @@
             rock.castShadow = true;
             cave.add(rock);
             
-            // Lubang gua (gelap di dalam)
             const holeGeo = new THREE.CylinderGeometry(3, 3, 8, 16, 1, true);
             const holeMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
             const hole = new THREE.Mesh(holeGeo, holeMat);
@@ -809,7 +878,6 @@
             hole.rotation.x = Math.PI / 2;
             cave.add(hole);
             
-            // Cahaya redup di dalam gua (efek istirahat)
             const caveLight = new THREE.PointLight(0x4444ff, 0.5, 10);
             caveLight.position.set(0, 3, 2);
             cave.add(caveLight);
@@ -819,20 +887,18 @@
             caves.push({ group: cave, position: pos.clone(), radius: 10 });
         }
 
-        // Buat 2 gua di lokasi berbeda
-        createCave(new THREE.Vector3(-60, getTerrainHeight(-60, -60), -60));
-        createCave(new THREE.Vector3(70, getTerrainHeight(70, 70), 70));
+        createCave(new THREE.Vector3(440, getTerrainHeight(440, 440), 440));
+        createCave(new THREE.Vector3(570, getTerrainHeight(570, 570), 570));
 
-        // ============ VILLAGE & NPC ============
+        // ============ VILLAGE & NPC (Lebih Detail) ============
         const villageGroup = new THREE.Group();
         scene.add(villageGroup);
         const npcs = [];
 
         function createVillage() {
-            const villagePos = new THREE.Vector3(50, 0, -50);
+            const villagePos = new THREE.Vector3(550, 0, 450);
             villagePos.y = getTerrainHeight(villagePos.x, villagePos.z);
             
-            // Rumah-rumah sederhana
             const housePositions = [
                 new THREE.Vector3(0, 0, 0),
                 new THREE.Vector3(15, 0, 5),
@@ -845,7 +911,6 @@
                 const housePos = villagePos.clone().add(offset);
                 housePos.y = getTerrainHeight(housePos.x, housePos.z);
                 
-                // Dinding
                 const wallGeo = new THREE.BoxGeometry(6, 4, 6);
                 const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B7355 });
                 const walls = new THREE.Mesh(wallGeo, wallMat);
@@ -853,7 +918,6 @@
                 walls.castShadow = true;
                 house.add(walls);
                 
-                // Atap
                 const roofGeo = new THREE.ConeGeometry(4.5, 2, 4);
                 const roofMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
                 const roof = new THREE.Mesh(roofGeo, roofMat);
@@ -862,11 +926,17 @@
                 roof.castShadow = true;
                 house.add(roof);
                 
+                // Door
+                const doorGeo = new THREE.BoxGeometry(1.2, 2, 0.2);
+                const doorMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
+                const door = new THREE.Mesh(doorGeo, doorMat);
+                door.position.set(0, 1, 3);
+                house.add(door);
+                
                 house.position.copy(housePos);
                 villageGroup.add(house);
             });
             
-            // NPC di tengah perkampungan
             const npcPos = villagePos.clone();
             npcPos.y = getTerrainHeight(npcPos.x, npcPos.z);
             createNPC(npcPos, "Raka", "Penyintas Helikopter", [
@@ -888,23 +958,52 @@
         function createNPC(pos, name, role, dialogs) {
             const npc = new THREE.Group();
             
-            // Body
-            const bodyGeo = new THREE.BoxGeometry(0.8, 1.5, 0.5);
+            // Body lebih detail
+            const bodyGeo = new THREE.CapsuleGeometry(0.4, 1.2, 4, 8);
             const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4444ff });
             const body = new THREE.Mesh(bodyGeo, bodyMat);
-            body.position.y = 1.5;
+            body.position.y = 1.4;
             body.castShadow = true;
             npc.add(body);
             
             // Head
-            const headGeo = new THREE.SphereGeometry(0.4, 8, 8);
+            const headGeo = new THREE.SphereGeometry(0.35, 8, 8);
             const headMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
             const head = new THREE.Mesh(headGeo, headMat);
-            head.position.y = 2.5;
+            head.position.y = 2.4;
             head.castShadow = true;
             npc.add(head);
             
-            // Nama tag
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.05, 4, 4);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(-0.1, 2.45, 0.3);
+            npc.add(eye1);
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(0.1, 2.45, 0.3);
+            npc.add(eye2);
+            
+            // Arms
+            const armGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 6);
+            const arm1 = new THREE.Mesh(armGeo, bodyMat);
+            arm1.position.set(-0.6, 1.8, 0);
+            arm1.rotation.z = 0.2;
+            npc.add(arm1);
+            const arm2 = new THREE.Mesh(armGeo, bodyMat);
+            arm2.position.set(0.6, 1.8, 0);
+            arm2.rotation.z = -0.2;
+            npc.add(arm2);
+            
+            // Legs
+            const legGeo = new THREE.CylinderGeometry(0.15, 0.1, 0.9, 6);
+            const leg1 = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            leg1.position.set(-0.2, 0.45, 0);
+            npc.add(leg1);
+            const leg2 = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            leg2.position.set(0.2, 0.45, 0);
+            npc.add(leg2);
+            
             npc.userData = { name, role, dialogs, currentDialog: 0 };
             npc.position.copy(pos);
             villageGroup.add(npc);
@@ -934,10 +1033,9 @@
             if (currentDialogIndex < data.dialogs.length - 1) {
                 btn1.innerText = "Lanjut ▶️";
                 btn1.onclick = () => { currentDialogIndex++; showNPCDialog(); };
-                btn2.innerText = "Tutup ️";
+                btn2.innerText = "Tutup ✖️";
                 btn2.onclick = closeNPCDialog;
             } else {
-                // Dialog terakhir
                 if (dialog.action === 'heal') {
                     btn1.innerText = ` Obati (+${dialog.healAmount} HP)`;
                     btn1.onclick = () => {
@@ -963,7 +1061,7 @@
                     btn1.innerText = "Tutup ✖️";
                     btn1.onclick = closeNPCDialog;
                 }
-                btn2.innerText = "Ulangi ";
+                btn2.innerText = "Ulangi 🔄";
                 btn2.onclick = () => { currentDialogIndex = 0; showNPCDialog(); };
             }
             
@@ -1021,14 +1119,12 @@
             }
 
             buildBossModel() {
-                // Body besar
                 const bodyGeo = new THREE.BoxGeometry(4, 1, 4);
                 const bodyMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.2 });
                 const body = new THREE.Mesh(bodyGeo, bodyMat);
                 body.castShadow = true;
                 this.group.add(body);
 
-                // 4 Lengan besar
                 const armGeo = new THREE.CylinderGeometry(0.2, 0.2, 3, 8);
                 const armMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
                 const armPositions = [[2.5, 0, 2.5], [-2.5, 0, 2.5], [2.5, 0, -2.5], [-2.5, 0, -2.5]];
@@ -1048,14 +1144,12 @@
                     this.group.add(rotor);
                 });
 
-                // Lampu merah besar
                 const lightGeo = new THREE.SphereGeometry(0.5, 8, 8);
                 this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
                 this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
                 this.indicator.position.set(0, -0.6, 0);
                 this.group.add(this.indicator);
 
-                // Spotlight besar
                 this.spotlight = new THREE.SpotLight(0xff0000, 5, 50, Math.PI / 4, 0.5, 1);
                 this.spotlight.position.set(0, -1, 0);
                 this.spotlight.target.position.set(0, -20, 0);
@@ -1063,7 +1157,6 @@
                 this.group.add(this.spotlight);
                 this.group.add(this.spotlight.target);
 
-                // Beam merah besar
                 const beamGeo = new THREE.ConeGeometry(8, 30, 16, 1, true);
                 const beamMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false });
                 this.beam = new THREE.Mesh(beamGeo, beamMat);
@@ -1099,7 +1192,6 @@
                 this.burnParticles = [];
                 this.burning = false;
                 
-                // Ledakan besar
                 createBigExplosion(this.group.position.clone());
                 showNotification("🎉 BOSS DIKALAHKAN!", false);
                 
@@ -1217,7 +1309,6 @@
                         if (now - this.lastAttackTime > 1500) {
                             this.lastAttackTime = now;
                             takeDamage(this.damage);
-                            // Serangan area
                             if (distToPlayer < 15) {
                                 takeDamage(10);
                             }
@@ -1261,12 +1352,11 @@
             }
         }
 
-        // Spawn boss setelah 3 drone biasa hancur
         function checkBossSpawn() {
             if (!bossSpawned && totalKills >= 3 && !bossDefeated) {
                 bossSpawned = true;
-                const bossPos = new THREE.Vector3(0, 0, 0);
-                bossPos.y = getTerrainHeight(0, 0);
+                const bossPos = new THREE.Vector3(500, 0, 500);
+                bossPos.y = getTerrainHeight(500, 500);
                 bossDrone = new BossDrone(bossPos);
             }
         }
@@ -1472,7 +1562,9 @@
                 if (!this.alive) return null;
                 for (const target of targets) {
                     if (target.destroyed || !target.alive) continue;
-                    if (this.mesh.position.distanceTo(target.group.position) < (target.type === 'boss' ? 3 : 1.8)) return target;
+                    const dist = this.mesh.position.distanceTo(target.group.position);
+                    const hitDist = target.type === 'boss' ? 3 : (target.type === 'deer' || target.type === 'rabbit' ? 1.5 : 1.8);
+                    if (dist < hitDist) return target;
                 }
                 return null;
             }
@@ -1487,11 +1579,11 @@
         function shootWeapon() {
             if (!controls.isLocked || isPaused) return;
             if (currentWeapon === 'arrow') {
-                if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
+                if (inventory.arrows <= 0) { showNotification(" Panah habis!", true); return; }
                 inventory.arrows--;
                 SoundManager.play('shoot_arrow');
             } else if (currentWeapon === 'fire_arrow') {
-                if (inventory.fire_arrows <= 0) { showNotification(" Panah api habis!", true); return; }
+                if (inventory.fire_arrows <= 0) { showNotification("🔥 Panah api habis!", true); return; }
                 inventory.fire_arrows--;
                 SoundManager.play('shoot_fire');
             } else if (currentWeapon === 'stone') {
@@ -1680,12 +1772,12 @@
                         this.group.position.y += (targetY - this.group.position.y) * delta;
                         this.indicatorMat.color.setHex(0x00ff00);
                         const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
-                        if (distToPlayer < detectRange) { this.state = 'ALERT'; this.alertTimer = 1.5; showNotification("⚠️ Drone mendeteksi!", true); }
+                        if (distToPlayer < detectRange) { this.state = 'ALERT'; this.alertTimer = 1.5; showNotification("️ Drone mendeteksi!", true); }
                         break;
                     case 'ALERT':
                         this.indicatorMat.color.setHex(0xffff00);
                         this.alertTimer -= delta;
-                        if (this.alertTimer <= 0) { this.state = 'CHASE'; showNotification("🚨 DRONE MENGEJAR!", true); }
+                        if (this.alertTimer <= 0) { this.state = 'CHASE'; showNotification(" DRONE MENGEJAR!", true); }
                         break;
                     case 'CHASE':
                         const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
@@ -1794,9 +1886,9 @@
         }
 
         const drones = [];
-        drones.push(new PatrolDrone(new THREE.Vector3(30, 0, 30), 35));
-        drones.push(new PatrolDrone(new THREE.Vector3(-40, 0, -20), 30));
-        drones.push(new PatrolDrone(new THREE.Vector3(60, 0, 40), 30));
+        drones.push(new PatrolDrone(new THREE.Vector3(530, 0, 530), 35));
+        drones.push(new PatrolDrone(new THREE.Vector3(460, 0, 480), 30));
+        drones.push(new PatrolDrone(new THREE.Vector3(560, 0, 540), 30));
 
         // ============ MINIMAP ============
         const minimapCanvas = document.getElementById('minimap');
@@ -1818,7 +1910,6 @@
             const px = camera.position.x, pz = camera.position.z;
             const scale = w / (MINIMAP_RANGE * 2);
             
-            // Gua (biru)
             ctx.fillStyle = '#4444ff';
             caves.forEach(cave => {
                 const x = (cave.position.x - px) * scale + w/2;
@@ -1826,15 +1917,13 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
             });
             
-            // Perkampungan (kuning)
             ctx.fillStyle = '#ffff00';
-            const villageX = (50 - px) * scale + w/2;
-            const villageY = (-50 - pz) * scale + h/2;
+            const villageX = (550 - px) * scale + w/2;
+            const villageY = (450 - pz) * scale + h/2;
             if (villageX >= 0 && villageX < w && villageY >= 0 && villageY < h) {
                 ctx.fillRect(villageX - 5, villageY - 5, 10, 10);
             }
             
-            // Api unggun (oranye)
             ctx.fillStyle = '#ff6600';
             campfires.forEach(cf => {
                 const x = (cf.x - px) * scale + w/2;
@@ -1842,7 +1931,6 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
             });
             
-            // Drone (merah)
             ctx.fillStyle = '#ff0000';
             drones.forEach(drone => {
                 if (drone.destroyed) return;
@@ -1851,7 +1939,6 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
             });
             
-            // Boss (merah besar)
             if (bossDrone && !bossDrone.destroyed) {
                 ctx.fillStyle = '#ff0000';
                 const x = (bossDrone.group.position.x - px) * scale + w/2;
@@ -1859,7 +1946,6 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); }
             }
             
-            // Hewan (hijau muda)
             ctx.fillStyle = '#90EE90';
             animals.forEach(animal => {
                 if (!animal.alive) return;
@@ -1868,7 +1954,6 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); }
             });
             
-            // Pemain (hijau, di tengah)
             ctx.fillStyle = '#00ff00';
             ctx.beginPath(); ctx.arc(w/2, h/2, 4, 0, Math.PI * 2); ctx.fill();
             const dir = new THREE.Vector3();
@@ -1895,7 +1980,7 @@
                 isGameOver = false;
                 playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
                 updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-                camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
+                camera.position.set(500, getTerrainHeight(500, 500) + 2.5, 500);
                 blocker.innerHTML = `<h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1><p style="font-size: 16px;">🎮 Survival 3D</p><p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p><p id="load-status" style="color: #888; margin-top: 10px;">Siap!</p>`;
             }
             try { controls.lock(); } catch(e) {}
@@ -1930,7 +2015,6 @@
                     if (targetNPC !== null) {
                         interactWithNPC(targetNPC);
                     } else if (targetAnimal !== null && targetAnimal.alive) {
-                        // Bunuh hewan dengan senjata
                         if (currentWeapon !== 'none') {
                             const damage = currentWeapon === 'fire_arrow' ? 15 : currentWeapon === 'arrow' ? 25 : 10;
                             targetAnimal.takeDamage(damage);
@@ -1946,7 +2030,7 @@
                         if (isNearWaterCheck) {
                             playerThirst = Math.min(MAX_THIRST, playerThirst + 25);
                             SoundManager.play('drink');
-                            showNotification("💧 Segar!");
+                            showNotification(" Segar!");
                             updateSurvivalUI();
                         } else if (targetInstanceId !== null) {
                             chopTree(targetInstanceId);
@@ -1966,13 +2050,12 @@
                 if (e.code === 'KeyG' && controls.isLocked && !isPlacingCampfire) {
                     if ((inventory.wood || 0) >= 1 && (inventory.arrows || 0) >= 1) {
                         inventory.wood -= 1; inventory.arrows -= 1; inventory.fire_arrows = (inventory.fire_arrows || 0) + 1;
-                        updateUI(); showNotification("🔥 +1 Panah Api!"); SoundManager.play('craft'); saveGame();
+                        updateUI(); showNotification(" +1 Panah Api!"); SoundManager.play('craft'); saveGame();
                     } else { showNotification(`Butuh 1 Kayu + 1 Panah!`, true); }
                 }
                 if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
                     if ((inventory.wood || 0) >= 2) { inventory.wood -= 2; inventory.arrows = (inventory.arrows || 0) + 3; updateUI(); showNotification(" +3 Panah!"); SoundManager.play('craft'); saveGame(); }
                 }
-                // Makan daging
                 if (e.code === 'KeyH' && controls.isLocked) {
                     if ((inventory.meat || 0) >= 1) {
                         inventory.meat--;
@@ -1983,10 +2066,10 @@
                         showNotification("🥩 Makan daging! HP +10, Lapar +30");
                         saveGame();
                     } else {
-                        showNotification(" Tidak ada daging!", true);
+                        showNotification("❌ Tidak ada daging!", true);
                     }
                 }
-                if (e.code === 'KeyQ' && controls.isLocked) { saveGame(); SoundManager.play('save'); showNotification("💾 Game Disimpan!"); }
+                if (e.code === 'KeyQ' && controls.isLocked) { saveGame(); SoundManager.play('save'); showNotification(" Game Disimpan!"); }
                 if (e.code === 'KeyR' && controls.isLocked) loadGame();
             } catch(e) {}
         });
@@ -2020,11 +2103,17 @@
 
         function chopTree(instanceId) {
             chunks.forEach(chunk => {
-                if (chunk.treeMesh) {
+                if (chunk.treeMesh1) {
                     const dummy = new THREE.Object3D();
                     dummy.matrix.identity();
-                    chunk.treeMesh.setMatrixAt(instanceId, dummy.matrix);
-                    chunk.treeMesh.instanceMatrix.needsUpdate = true;
+                    chunk.treeMesh1.setMatrixAt(instanceId, dummy.matrix);
+                    chunk.treeMesh1.instanceMatrix.needsUpdate = true;
+                }
+                if (chunk.treeMesh2) {
+                    const dummy = new THREE.Object3D();
+                    dummy.matrix.identity();
+                    chunk.treeMesh2.setMatrixAt(instanceId, dummy.matrix);
+                    chunk.treeMesh2.instanceMatrix.needsUpdate = true;
                 }
             });
             choppedTrees.add(instanceId);
@@ -2077,9 +2166,9 @@
         function updateWeaponHUD() {
             const nameEl = document.getElementById('weapon-name'); const ammoEl = document.getElementById('weapon-ammo');
             if (currentWeapon === 'arrow') { nameEl.innerText = '🏹 Panah'; ammoEl.innerText = `× ${inventory.arrows || 0}`; }
-            else if (currentWeapon === 'fire_arrow') { nameEl.innerText = ' Panah Api'; ammoEl.innerText = `× ${inventory.fire_arrows || 0}`; }
+            else if (currentWeapon === 'fire_arrow') { nameEl.innerText = '🔥 Panah Api'; ammoEl.innerText = `× ${inventory.fire_arrows || 0}`; }
             else if (currentWeapon === 'stone') { nameEl.innerText = '🪨 Batu'; ammoEl.innerText = `× ${inventory.stones || 0}`; }
-            else { nameEl.innerText = '👊 Tangan Kosong'; ammoEl.innerText = '-'; }
+            else { nameEl.innerText = ' Tangan Kosong'; ammoEl.innerText = '-'; }
         }
         function showNotification(text, isError = false) {
             const notif = document.getElementById('notification');
@@ -2133,7 +2222,7 @@
                     return true;
                 }
             } catch(e) {}
-            camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
+            camera.position.set(500, getTerrainHeight(500, 500) + playerHeight, 500);
             updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI(); updateKillCounter(); updateAnimalCounter();
             return false;
         }
@@ -2144,8 +2233,16 @@
         let prevTime = performance.now();
         
         loadGame().then(() => {
+            const worldMin = 10;
+            const worldMax = 990;
+            
+            if (camera.position.x < worldMin || camera.position.x > worldMax ||
+                camera.position.z < worldMin || camera.position.z > worldMax) {
+                camera.position.set(500, 0, 500);
+            }
+            
             const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
-            if (camera.position.y < terrainY + playerHeight) camera.position.y = terrainY + playerHeight;
+            camera.position.y = terrainY + playerHeight;
             document.getElementById('load-status').innerText = 'Siap! Klik untuk mulai.';
             updateChunks();
         });
@@ -2167,7 +2264,6 @@
                 const currentSkyColor = getSkyColor(timeOfDay);
                 scene.background = currentSkyColor; scene.fog.color = currentSkyColor;
 
-                // Update langit
                 const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
                 sunLight.position.set(Math.cos(sunAngle) * 200, Math.sin(sunAngle) * 200, 50);
                 sunLight.lookAt(0, 0, 0);
@@ -2175,13 +2271,11 @@
                 sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
                 ambientLight.intensity = sunHeight > 0 ? (0.3 + sunHeight * 0.3) : 0.15;
                 
-                // Awan bergerak
                 clouds.forEach(cloud => {
                     cloud.position.x += cloud.userData.speed * delta;
                     if (cloud.position.x > 400) cloud.position.x = -400;
                 });
                 
-                // Bintang muncul di malam hari
                 const isNight = timeOfDay < 6 || timeOfDay > 19;
                 starsMat.opacity = isNight ? 0.8 : 0;
                 moon.visible = isNight;
@@ -2194,7 +2288,6 @@
                     });
                 });
 
-                // Update projectiles
                 const allTargets = [...drones];
                 if (bossDrone && !bossDrone.destroyed) allTargets.push(bossDrone);
                 animals.forEach(a => { if (a.alive) allTargets.push(a); });
@@ -2210,17 +2303,14 @@
                     if (!proj.alive) projectiles.splice(i, 1);
                 }
 
-                // Update animals
                 animals.forEach(animal => animal.update(delta, camera.position));
 
-                // Update drones
                 let anyDroneChasing = false;
                 drones.forEach(drone => {
                     drone.update(delta, camera.position, timeOfDay);
                     if (!drone.destroyed && (drone.state === 'CHASE' || drone.state === 'ATTACK')) anyDroneChasing = true;
                 });
                 
-                // Update boss
                 if (bossDrone && !bossDrone.destroyed) {
                     bossDrone.update(delta, camera.position, timeOfDay);
                     anyDroneChasing = true;
@@ -2239,6 +2329,11 @@
                     if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
 
                     controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
+                    
+                    const worldMin = 10;
+                    const worldMax = 990;
+                    camera.position.x = Math.max(worldMin, Math.min(worldMax, camera.position.x));
+                    camera.position.z = Math.max(worldMin, Math.min(worldMax, camera.position.z));
                     
                     const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
                     const groundLevel = Math.max(terrainY, -1.5);
@@ -2301,7 +2396,6 @@
                     targetAnimal = null;
                     targetNPC = null;
 
-                    // Cek NPC
                     for (const npc of npcs) {
                         const dist = camera.position.distanceTo(npc.position);
                         if (dist < 4) {
@@ -2314,7 +2408,6 @@
                     }
 
                     if (!promptShown) {
-                        // Cek hewan
                         for (const animal of animals) {
                             if (!animal.alive) continue;
                             const dist = camera.position.distanceTo(animal.group.position);
@@ -2337,14 +2430,28 @@
                         } else {
                             chunks.forEach(chunk => {
                                 if (promptShown) return;
-                                const intersects = raycaster.intersectObject(chunk.treeMesh);
-                                if (intersects.length > 0 && intersects[0].distance < 6) {
-                                    const instanceId = intersects[0].instanceId;
-                                    if (!choppedTrees.has(instanceId)) {
-                                        targetInstanceId = instanceId;
-                                        promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
-                                        promptUI.style.display = 'block';
-                                        promptShown = true;
+                                if (chunk.treeMesh1) {
+                                    const intersects = raycaster.intersectObject(chunk.treeMesh1);
+                                    if (intersects.length > 0 && intersects[0].distance < 6) {
+                                        const instanceId = intersects[0].instanceId;
+                                        if (!choppedTrees.has(instanceId)) {
+                                            targetInstanceId = instanceId;
+                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                                            promptUI.style.display = 'block';
+                                            promptShown = true;
+                                        }
+                                    }
+                                }
+                                if (!promptShown && chunk.treeMesh2) {
+                                    const intersects = raycaster.intersectObject(chunk.treeMesh2);
+                                    if (intersects.length > 0 && intersects[0].distance < 6) {
+                                        const instanceId = intersects[0].instanceId;
+                                        if (!choppedTrees.has(instanceId)) {
+                                            targetInstanceId = instanceId;
+                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                                            promptUI.style.display = 'block';
+                                            promptShown = true;
+                                        }
                                     }
                                 }
                             });
