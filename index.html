@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Open World + Supabase Save</title>
+    <title>WILDLANDS: Interaction & Inventory</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; }
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
             position: absolute; top: 10px; left: 10px; color: #00ff00; 
             background: rgba(0, 0, 0, 0.7); padding: 15px; border-radius: 5px;
@@ -18,10 +18,14 @@
         }
         #ui-layer button:hover { background: #006600; }
         #crosshair {
-            position: absolute; top: 50%; left: 50%; width: 8px; height: 8px;
-            background: rgba(255, 255, 255, 0.9); border-radius: 50%;
+            position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
             transform: translate(-50%, -50%); pointer-events: none;
-            border: 1px solid black;
+        }
+        #interaction-prompt {
+            position: absolute; top: 55%; left: 50%; transform: translateX(-50%);
+            color: #ffff00; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 2px black;
+            display: none; pointer-events: none;
         }
         #blocker {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -41,25 +45,25 @@
 
     <div id="ui-layer">
         <h3>WILDLANDS: LAST SIGNAL</h3>
-        <p>Waktu: <span id="time">06:00</span> | <span id="period">Pagi</span></p>
-        <p>Biome: <span id="biome">Unknown</span></p>
-        <p>Pos: <span id="coords">0, 0, 0</span></p>
+        <p>🎒 Inventory: <span id="inv-wood">0</span> Kayu</p>
+        <p>🕒 Waktu: <span id="time">06:00</span> | <span id="period">Pagi</span></p>
+        <p>📍 <span id="coords">0, 0, 0</span></p>
         <hr style="border-color: #004400;">
-        <button id="btn-save">💾 Simpan Game (Save)</button>
-        <button id="btn-load">🔄 Muat Game (Load)</button>
-        <p style="font-size: 10px; color: #888; margin-top: 10px;">Auto-save setiap 30 detik</p>
+        <button id="btn-save">💾 Simpan Game</button>
+        <button id="btn-load">🔄 Muat Game</button>
     </div>
+    
     <div id="crosshair"></div>
+    <div id="interaction-prompt">[E] Tebang Pohon</div>
     <div id="notification">Game Disimpan!</div>
 
     <div id="blocker">
-        <h1>KLIK UNTUK MULAI EKSPLORASI</h1>
-        <p>Gerak: W, A, S, D | Lompat: SPASI | Lihat: Mouse</p>
+        <h1>KLIK UNTUK MULAI</h1>
+        <p>Gerak: W, A, S, D | Lompat: SPASI | Interaksi: E</p>
         <p>Tekan ESC untuk melepaskan kursor.</p>
-        <p id="load-status" style="color: #ffff00; margin-top: 20px;">Mencoba memuat data...</p>
+        <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
 
-    <!-- Import Three.js -->
     <script type="importmap">
         {
             "imports": {
@@ -75,35 +79,34 @@
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
         import { createClient } from '@supabase/supabase-js';
 
-        // --- 1. INISIALISASI SUPABASE ---
+        // --- 1. SUPABASE SETUP ---
         const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
         const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sc2lid2loZnplaHFjZGF3cmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxMTcwNTEsImV4cCI6MjEwMzY5MzA1MX0.faKWNZqTLE6nEH6nPw0L4uFepTy6ZvqrZDy2BaHcWxs';
         const supabase = createClient(supabaseUrl, supabaseKey);
 
-        // Buat atau ambil Player ID unik dari localStorage
         let playerId = localStorage.getItem('wildlands_player_id');
         if (!playerId) {
             playerId = 'player_' + Math.random().toString(36).substring(2, 11);
             localStorage.setItem('wildlands_player_id', playerId);
         }
-        console.log("Player ID:", playerId);
 
-        // --- 2. SETUP THREE.JS DASAR ---
+        // State Game
+        let inventory = { wood: 0 };
+        let choppedTrees = new Set(); // Menyimpan instanceId pohon yang sudah ditebang
+
+        // --- 2. THREE.JS SETUP ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
         scene.add(ambientLight);
-
         const sunLight = new THREE.DirectionalLight(0xffffff, 1);
         sunLight.castShadow = true;
-        sunLight.shadow.mapSize.width = 2048;
-        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.mapSize.set(2048, 2048);
         const d = 150;
         sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
         sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
@@ -113,7 +116,6 @@
         const worldSize = 300;
         const geometry = new THREE.PlaneGeometry(worldSize, worldSize, 150, 150);
         geometry.rotateX(-Math.PI / 2);
-
         const posAttribute = geometry.attributes.position;
         const colors = [];
         const colorObj = new THREE.Color();
@@ -127,48 +129,41 @@
         }
 
         for (let i = 0; i < posAttribute.count; i++) {
-            const x = posAttribute.getX(i);
-            const z = posAttribute.getZ(i);
+            const x = posAttribute.getX(i), z = posAttribute.getZ(i);
             const y = getTerrainHeight(x, z);
             posAttribute.setY(i, y);
-
             if (y < -2) colorObj.setHex(0x2d4c1e);
             else if (y < 3) colorObj.setHex(0x4a7c2e);
             else if (y < 6) colorObj.setHex(0x6b6b6b);
             else colorObj.setHex(0xffffff);
             colors.push(colorObj.r, colorObj.g, colorObj.b);
         }
-
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
         geometry.computeVertexNormals();
-
-        const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ 
-            vertexColors: true, roughness: 0.8, flatShading: true
-        }));
+        const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
         terrain.receiveShadow = true;
         scene.add(terrain);
 
         const waterLevel = -1.5;
         const waterGeo = new THREE.PlaneGeometry(worldSize * 2, worldSize * 2, 80, 80);
         waterGeo.rotateX(-Math.PI / 2);
-        const waterMat = new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true });
-        const water = new THREE.Mesh(waterGeo, waterMat);
+        const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true }));
         water.position.y = waterLevel;
         scene.add(water);
         const waterPosAttr = waterGeo.attributes.position;
         const waterOriginalY = new Float32Array(waterPosAttr.count);
         for (let i = 0; i < waterPosAttr.count; i++) waterOriginalY[i] = waterPosAttr.getY(i);
 
-        // --- 4. POHON (INSTANCED) ---
+        // --- 4. POHON (INSTANCED MESH) ---
         const treeCount = 800;
-        const treeMesh = new THREE.InstancedMesh(
-            new THREE.ConeGeometry(1.5, 5, 6),
-            new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true }),
-            treeCount
-        );
+        const treeGeo = new THREE.ConeGeometry(1.5, 5, 6);
+        const treeMat = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
+        const treeMesh = new THREE.InstancedMesh(treeGeo, treeMat, treeCount);
         treeMesh.castShadow = true; treeMesh.receiveShadow = true;
+        treeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // Penting agar bisa diupdate saat pohon ditebang
+        
         const dummy = new THREE.Object3D();
-        let treeIndex = 0;
+        const treePositions = []; // Simpan data pohon untuk referensi
 
         for (let i = 0; i < treeCount; i++) {
             const x = (Math.random() - 0.5) * worldSize * 0.9;
@@ -179,20 +174,34 @@
                 dummy.scale.setScalar(0.8 + Math.random() * 0.6);
                 dummy.rotation.y = Math.random() * Math.PI;
                 dummy.updateMatrix();
-                treeMesh.setMatrixAt(treeIndex++, dummy.matrix);
+                treeMesh.setMatrixAt(i, dummy.matrix);
+                treePositions.push({ id: i, x, y, z });
+            } else {
+                // Sembunyikan pohon yang tidak valid
+                dummy.position.set(0, -100, 0);
+                dummy.updateMatrix();
+                treeMesh.setMatrixAt(i, dummy.matrix);
             }
         }
-        treeMesh.count = treeIndex;
         scene.add(treeMesh);
 
-        // --- 5. KONTROL PEMAIN ---
+        // --- 5. RAYCASTER (INTERAKSI) ---
+        const raycaster = new THREE.Raycaster();
+        const center = new THREE.Vector2(0, 0);
+        let targetInstanceId = null;
+
+        // --- 6. KONTROL PEMAIN ---
         const controls = new PointerLockControls(camera, document.body);
         const blocker = document.getElementById('blocker');
         const loadStatus = document.getElementById('load-status');
+        const promptUI = document.getElementById('interaction-prompt');
 
         blocker.addEventListener('click', () => controls.lock());
         controls.addEventListener('lock', () => blocker.style.display = 'none');
-        controls.addEventListener('unlock', () => blocker.style.display = 'flex');
+        controls.addEventListener('unlock', () => {
+            blocker.style.display = 'flex';
+            promptUI.style.display = 'none';
+        });
 
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let canJump = false;
@@ -206,6 +215,11 @@
             if (e.code === 'KeyS') moveBackward = true;
             if (e.code === 'KeyD') moveRight = true;
             if (e.code === 'Space' && canJump) { velocity.y += 8; canJump = false; }
+            
+            // INTERAKSI TEKAN 'E'
+            if (e.code === 'KeyE' && targetInstanceId !== null && controls.isLocked) {
+                chopTree(targetInstanceId);
+            }
         });
 
         document.addEventListener('keyup', (e) => {
@@ -215,7 +229,27 @@
             if (e.code === 'KeyD') moveRight = false;
         });
 
-        // --- 6. DAY/NIGHT CYCLE ---
+        function chopTree(instanceId) {
+            // 1. Sembunyikan pohon
+            dummy.matrix.identity(); // Reset ke skala 0
+            treeMesh.setMatrixAt(instanceId, dummy.matrix);
+            treeMesh.instanceMatrix.needsUpdate = true;
+
+            // 2. Update state
+            choppedTrees.add(instanceId);
+            inventory.wood += 1;
+            document.getElementById('inv-wood').innerText = inventory.wood;
+
+            // 3. Feedback
+            showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
+            targetInstanceId = null;
+            promptUI.style.display = 'none';
+
+            // 4. Auto-save setelah interaksi
+            saveGame();
+        }
+
+        // --- 7. DAY/NIGHT CYCLE ---
         let timeOfDay = 8.0;
         const timeSpeed = 0.15;
         const skyColors = {
@@ -241,15 +275,14 @@
         }
 
         function formatTime(time) {
-            const h = Math.floor(time) % 24;
-            const m = Math.floor((time - Math.floor(time)) * 60);
+            const h = Math.floor(time) % 24, m = Math.floor((time - Math.floor(time)) * 60);
             return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
         }
 
         scene.fog = new THREE.Fog(skyColors.day, 30, 180);
         scene.background = skyColors.day.clone();
 
-        // --- 7. FUNGSI SAVE & LOAD SUPABASE ---
+        // --- 8. SAVE & LOAD SYSTEM ---
         function showNotification(text, isError = false) {
             const notif = document.getElementById('notification');
             notif.innerText = text;
@@ -264,17 +297,13 @@
             showNotification("Menyimpan...");
             const saveData = {
                 player_id: playerId,
-                pos_x: camera.position.x,
-                pos_y: camera.position.y,
-                pos_z: camera.position.z,
+                pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
                 time_of_day: timeOfDay,
-                health: 100, hunger: 100, thirst: 100
+                inventory: inventory,
+                chopped_trees: Array.from(choppedTrees) // Ubah Set ke Array untuk Supabase
             };
 
-            const { error } = await supabase
-                .from('players')
-                .upsert(saveData, { onConflict: 'player_id' });
-
+            const { error } = await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
             if (error) {
                 console.error('Save error:', error);
                 showNotification("Gagal menyimpan!", true);
@@ -285,55 +314,48 @@
 
         async function loadGame() {
             showNotification("Memuat...");
-            const { data, error } = await supabase
-                .from('players')
-                .select('*')
-                .eq('player_id', playerId)
-                .single();
+            const { data, error } = await supabase.from('players').select('*').eq('player_id', playerId).single();
 
             if (data && !error) {
                 camera.position.set(data.pos_x, data.pos_y, data.pos_z);
                 timeOfDay = data.time_of_day || 8.0;
+                
+                // Muat Inventory
+                if (data.inventory) {
+                    inventory = data.inventory;
+                    document.getElementById('inv-wood').innerText = inventory.wood || 0;
+                }
+
+                // Muat Pohon yang sudah ditebang
+                if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
+                    data.chopped_trees.forEach(id => {
+                        choppedTrees.add(id);
+                        dummy.matrix.identity();
+                        treeMesh.setMatrixAt(id, dummy.matrix);
+                    });
+                    treeMesh.instanceMatrix.needsUpdate = true;
+                }
+
                 showNotification("✅ Game Berhasil Dimuat!");
                 loadStatus.innerText = "Data ditemukan! Klik untuk mulai.";
                 return true;
             } else {
-                console.log('No save data found, starting fresh.');
                 loadStatus.innerText = "Data tidak ditemukan. Memulai game baru.";
                 camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
                 return false;
             }
         }
 
-        // Event Listener Tombol UI
-        document.getElementById('btn-save').addEventListener('click', (e) => {
-            e.stopPropagation(); // Mencegah pointer lock aktif saat klik tombol
-            saveGame();
-        });
-        document.getElementById('btn-load').addEventListener('click', (e) => {
-            e.stopPropagation();
-            loadGame();
-        });
+        document.getElementById('btn-save').addEventListener('click', (e) => { e.stopPropagation(); saveGame(); });
+        document.getElementById('btn-load').addEventListener('click', (e) => { e.stopPropagation(); loadGame(); });
+        setInterval(() => { if (controls.isLocked) saveGame(); }, 30000);
 
-        // Auto-save setiap 30 detik
-        setInterval(() => {
-            if (controls.isLocked) saveGame();
-        }, 30000);
-
-        // --- 8. GAME LOOP ---
+        // --- 9. GAME LOOP ---
         let prevTime = performance.now();
-        const coordsDisplay = document.getElementById('coords');
-        const biomeDisplay = document.getElementById('biome');
-        const timeDisplay = document.getElementById('time');
-        const periodDisplay = document.getElementById('period');
 
-        // Coba load data saat startup
         loadGame().then(() => {
-            // Pastikan posisi Y benar setelah load
             const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
-            if (camera.position.y < terrainY + playerHeight) {
-                camera.position.y = terrainY + playerHeight;
-            }
+            if (camera.position.y < terrainY + playerHeight) camera.position.y = terrainY + playerHeight;
         });
 
         function animate() {
@@ -341,43 +363,31 @@
             const time = performance.now();
             const delta = Math.min((time - prevTime) / 1000, 0.1);
 
-            // Update waktu
+            // Update Waktu & Cahaya
             timeOfDay += timeSpeed * delta;
             if (timeOfDay >= 24) timeOfDay -= 24;
-
-            // Update langit & cahaya
             const currentSkyColor = getSkyColor(timeOfDay);
             scene.background = currentSkyColor;
             scene.fog.color = currentSkyColor;
 
             const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
-            const sunRadius = 200;
-            sunLight.position.set(Math.cos(sunAngle) * sunRadius, Math.sin(sunAngle) * sunRadius, 50);
+            sunLight.position.set(Math.cos(sunAngle) * 200, Math.sin(sunAngle) * 200, 50);
             sunLight.lookAt(0, 0, 0);
-
             const sunHeight = Math.sin(sunAngle);
-            if (sunHeight > 0) {
-                sunLight.intensity = 0.5 + sunHeight * 0.8;
-                sunLight.color.setHex(sunHeight > 0.3 ? 0xffffff : 0xffaa66);
-                ambientLight.intensity = 0.3 + sunHeight * 0.3;
-            } else {
-                sunLight.intensity = 0.1;
-                sunLight.color.setHex(0x4466aa);
-                ambientLight.intensity = 0.15;
-            }
+            sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
+            sunLight.color.setHex(sunHeight > 0.3 ? 0xffffff : 0xffaa66);
+            ambientLight.intensity = sunHeight > 0 ? (0.3 + sunHeight * 0.3) : 0.15;
 
-            // Animasi ombak
+            // Animasi Air
             const waveTime = time * 0.001;
             for (let i = 0; i < waterPosAttr.count; i++) {
-                const x = waterPosAttr.getX(i);
-                const z = waterPosAttr.getZ(i);
-                const waveY = Math.sin(x * 0.1 + waveTime) * 0.15 + Math.cos(z * 0.1 + waveTime * 0.8) * 0.15;
-                waterPosAttr.setY(i, waterOriginalY[i] + waveY);
+                const x = waterPosAttr.getX(i), z = waterPosAttr.getZ(i);
+                waterPosAttr.setY(i, waterOriginalY[i] + Math.sin(x * 0.1 + waveTime) * 0.15 + Math.cos(z * 0.1 + waveTime * 0.8) * 0.15);
             }
             waterPosAttr.needsUpdate = true;
             waterGeo.computeVertexNormals();
 
-            // Logika pemain
+            // Logika Pemain & Raycasting
             if (controls.isLocked) {
                 velocity.x -= velocity.x * 10.0 * delta;
                 velocity.z -= velocity.z * 10.0 * delta;
@@ -395,7 +405,6 @@
                 
                 const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
                 const groundLevel = Math.max(terrainY, waterLevel);
-                
                 camera.position.y += velocity.y * delta;
 
                 if (camera.position.y < groundLevel + playerHeight) {
@@ -404,14 +413,29 @@
                     canJump = true;
                 }
 
-                coordsDisplay.innerText = `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
-                timeDisplay.innerText = formatTime(timeOfDay);
-                periodDisplay.innerText = getTimePeriod(timeOfDay);
-                
-                if (terrainY > 6) biomeDisplay.innerText = "Pegunungan Bersalju";
-                else if (terrainY > 3) biomeDisplay.innerText = "Dataran Tinggi Berbatu";
-                else if (terrainY > waterLevel) biomeDisplay.innerText = "Hutan / Dataran Rumput";
-                else biomeDisplay.innerText = "Perairan / Lembah";
+                // RAYCASTING UNTUK INTERAKSI
+                raycaster.setFromCamera(center, camera);
+                const intersects = raycaster.intersectObject(treeMesh);
+
+                if (intersects.length > 0 && intersects[0].distance < 6) {
+                    const instanceId = intersects[0].instanceId;
+                    // Pastikan pohon belum ditebang
+                    if (!choppedTrees.has(instanceId)) {
+                        targetInstanceId = instanceId;
+                        promptUI.style.display = 'block';
+                    } else {
+                        targetInstanceId = null;
+                        promptUI.style.display = 'none';
+                    }
+                } else {
+                    targetInstanceId = null;
+                    promptUI.style.display = 'none';
+                }
+
+                // Update UI
+                document.getElementById('coords').innerText = `${Math.round(camera.position.x)}, ${Math.round(camera.position.y)}, ${Math.round(camera.position.z)}`;
+                document.getElementById('time').innerText = formatTime(timeOfDay);
+                document.getElementById('period').innerText = getTimePeriod(timeOfDay);
             }
 
             prevTime = time;
