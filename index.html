@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Fire Arrow</title>
+    <title>WILDLANDS: Final Build</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -21,7 +21,10 @@
             position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
             border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
             transform: translate(-50%, -50%); pointer-events: none;
+            transition: border-color 0.2s, width 0.2s, height 0.2s;
         }
+        #crosshair.target { border-color: #ff4444; width: 18px; height: 18px; }
+        
         #interaction-prompt {
             position: absolute; top: 55%; left: 50%; transform: translateX(-50%);
             color: #ffff00; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 2px black;
@@ -86,6 +89,51 @@
             padding: 12px; border-radius: 5px; border: 1px solid #ffff00;
             min-width: 220px; pointer-events: none;
         }
+        
+        /* MINIMAP */
+        #minimap-container {
+            position: absolute; bottom: 20px; right: 20px;
+            background: rgba(0, 0, 0, 0.7); border: 2px solid #555;
+            border-radius: 5px; padding: 5px; pointer-events: none;
+        }
+        #minimap {
+            display: block;
+            background: #1a3300;
+        }
+        
+        /* KILL COUNTER */
+        #kill-counter {
+            position: absolute; top: 50%; left: 20px; transform: translateY(-50%);
+            color: #ff4444; font-size: 16px; font-weight: bold;
+            background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 5px;
+            border: 1px solid #ff4444; display: none;
+        }
+        
+        /* AUTO-SAVE INDICATOR */
+        #autosave-indicator {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #00ff00; font-size: 14px; font-weight: bold;
+            background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 5px;
+            border: 1px solid #00ff00; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        
+        /* PAUSE MENU */
+        #pause-menu {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9); color: white; padding: 30px;
+            border-radius: 10px; border: 2px solid #00ff00; display: none;
+            text-align: center; min-width: 300px;
+        }
+        #pause-menu h2 { color: #00ff00; margin-top: 0; }
+        #pause-menu button {
+            background: #00ff00; color: black; border: none;
+            padding: 10px 20px; margin: 5px; cursor: pointer;
+            font-family: 'Courier New', monospace; font-weight: bold;
+            border-radius: 3px;
+        }
+        #pause-menu button:hover { background: #00cc00; }
+        
         .drone-hp-bar {
             position: absolute; width: 60px; height: 6px;
             background: #330000; border: 1px solid #ff0000;
@@ -104,17 +152,18 @@
 <body>
 
     <div id="ui-layer">
-        <h3>WILDLANDS: LAST SIGNAL</h3>
-        <p>❤️ HP: <span id="health-text">100</span></p>
+        <h3 style="margin: 0 0 8px 0;">WILDLANDS: LAST SIGNAL</h3>
+        <p style="margin: 2px 0;">❤️ HP: <span id="health-text">100</span></p>
         <div class="bar-container"><div id="health-bar"></div></div>
-        <p>⚡ Stamina: <span id="stamina-text">100</span></p>
+        <p style="margin: 2px 0;"> Stamina: <span id="stamina-text">100</span></p>
         <div class="bar-container"><div id="stamina-bar"></div></div>
-        <p>🍖 Lapar: <span id="hunger-text">100</span></p>
+        <p style="margin: 2px 0;">🍖 Lapar: <span id="hunger-text">100</span></p>
         <div class="bar-container"><div id="hunger-bar"></div></div>
-        <p>💧 Haus: <span id="thirst-text">100</span></p>
+        <p style="margin: 2px 0;">💧 Haus: <span id="thirst-text">100</span></p>
         <div class="bar-container"><div id="thirst-bar"></div></div>
-        <p>🪵 <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> | 🪨 <span id="inv-stones">0</span></p>
-        <p>🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
+        <p style="margin: 2px 0;">🪵 <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> |  <span id="inv-stones">0</span></p>
+        <p style="margin: 2px 0;">🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
+        <p style="margin: 2px 0; color: #ff4444;">💀 Drone Dihancurkan: <span id="kill-count">0</span></p>
     </div>
     
     <div id="quest-hud">
@@ -131,6 +180,8 @@
     <div id="alert-indicator">⚠️ TERDETEKSI!</div>
     <div id="sprint-indicator">🏃 SPRINT</div>
     <div id="campfire-bonus">🔥 Istirahat</div>
+    <div id="kill-counter">💀 KILL: <span id="kill-display">0</span></div>
+    <div id="autosave-indicator">💾 Menyimpan...</div>
     
     <div id="weapon-hud">
         <div class="weapon-name" id="weapon-name">👊 Tangan Kosong</div>
@@ -138,20 +189,34 @@
         <div class="hint">[1] Batu [2] Panah [3] Panah Api<br>[G] Craft Panah Api | Klik Kiri: Tembak</div>
     </div>
     
+    <div id="minimap-container">
+        <canvas id="minimap" width="150" height="150"></canvas>
+    </div>
+    
     <div id="controls-help">
         <strong>Kontrol:</strong><br>
         WASD: Gerak | SPACE: Lompat | SHIFT: Sprint<br>
         E: Interaksi | C: Craft Api | F: Letakkan<br>
-        T: Craft Panah | G: Craft Panah Api (1 Kayu + 1 Panah)<br>
-        1: Batu | 2: Panah | 3: Panah Api | Q: Save | R: Load
+        T: Craft Panah | G: Craft Panah Api<br>
+        1: Batu | 2: Panah | 3: Panah Api<br>
+        Q: Save | R: Load | ESC: Pause
     </div>
 
     <div id="blocker">
-        <h1>KLIK UNTUK MULAI</h1>
-        <p>🔥 Senjata baru: <span style="color:#ff6600">Panah Api</span>!</p>
-        <p>Craft dengan tombol <span style="color:#ffaa00">G</span> (butuh 1 Kayu + 1 Panah)</p>
-        <p>Panah api memberikan <span style="color:#ff4444">damage bakar</span> selama 3 detik!</p>
-        <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat...</p>
+        <h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1>
+        <p style="font-size: 16px;"> Game Survival 3D dengan Combat System</p>
+        <p>🔥 Senjata baru: <span style="color:#ff6600">Panah Api</span> dengan efek bakar!</p>
+        <p>🗺️ Minimap untuk navigasi | ⏸️ ESC untuk pause</p>
+        <p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p>
+        <p id="load-status" style="color: #888; margin-top: 10px;">Memuat...</p>
+    </div>
+
+    <div id="pause-menu">
+        <h2>⏸️ PAUSED</h2>
+        <p>Game dijeda</p>
+        <button onclick="resumeGame()">▶️ Lanjutkan</button>
+        <button onclick="saveAndResume()">💾 Save & Lanjut</button>
+        <p style="font-size: 11px; color: #888; margin-top: 15px;">Tekan ESC lagi untuk lanjut</p>
     </div>
 
     <script type="importmap">
@@ -171,8 +236,7 @@
 
         // ============ SOUND MANAGER ============
         const SoundManager = {
-            ctx: null,
-            enabled: true,
+            ctx: null, enabled: true,
             init() {
                 try {
                     if (!this.ctx) {
@@ -212,7 +276,6 @@
                         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
                         osc.start(now); osc.stop(now + 0.15);
                     } else if (type === 'shoot_fire') {
-                        // Suara api menyala
                         osc.type = 'sawtooth';
                         osc.frequency.setValueAtTime(200, now);
                         osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
@@ -233,7 +296,6 @@
                         gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
                         osc.start(now); osc.stop(now + 0.2);
                     } else if (type === 'burn') {
-                        // Suara terbakar
                         osc.type = 'sawtooth';
                         osc.frequency.setValueAtTime(80 + Math.random() * 40, now);
                         gain.gain.setValueAtTime(0.15, now);
@@ -251,6 +313,13 @@
                         osc.frequency.setValueAtTime(600, now);
                         osc.frequency.linearRampToValueAtTime(800, now + 0.15);
                         gain.gain.setValueAtTime(0.15, now);
+                        gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'save') {
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(500, now);
+                        osc.frequency.linearRampToValueAtTime(700, now + 0.1);
+                        gain.gain.setValueAtTime(0.1, now);
                         gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
                         osc.start(now); osc.stop(now + 0.15);
                     }
@@ -282,13 +351,12 @@
         let playerHunger = 100, MAX_HUNGER = 100;
         let playerThirst = 100, MAX_THIRST = 100;
         
-        // DIPERLAMBAT: Sekarang butuh ~5 menit untuk habis
         const STAMINA_DRAIN_RATE = 15;
         const STAMINA_REGEN_RATE = 5;
         const STAMINA_REGEN_CAMPFIRE = 20;
         const HP_REGEN_CAMPFIRE = 5;
-        const HUNGER_DECAY = 0.3;   // 100 / 0.3 = ~333 detik (~5.5 menit)
-        const THIRST_DECAY = 0.4;   // 100 / 0.4 = 250 detik (~4 menit)
+        const HUNGER_DECAY = 0.3;
+        const THIRST_DECAY = 0.4;
         const CAMPFIRE_RADIUS = 8;
         
         let isSprinting = false;
@@ -296,6 +364,8 @@
         let currentWeapon = 'none';
         let starvationTimer = 0;
         let isGameOver = false;
+        let isPaused = false;
+        let totalKills = 0;
         
         let quest = {
             active: true, title: "Ancaman Udara", description: "Hancurkan 3 Drone",
@@ -532,7 +602,7 @@
             saveGame();
         }
 
-        // ============ PROJECTILE SYSTEM (dengan Fire Arrow) ============
+        // ============ PROJECTILE SYSTEM ============
         const projectiles = [];
         
         class Projectile {
@@ -562,11 +632,9 @@
                     tip.position.y = 0.5;
                     this.mesh.add(tip);
                     
-                    // Trail api untuk fire arrow
                     if (type === 'fire_arrow') {
                         this.trailParticles = [];
                         this.trailTimer = 0;
-                        // Tambahkan cahaya api di ujung panah
                         const fireLight = new THREE.PointLight(0xff4400, 1, 5);
                         fireLight.position.y = 0.5;
                         this.mesh.add(fireLight);
@@ -574,8 +642,8 @@
                     }
                     
                     this.damage = type === 'fire_arrow' ? 15 : 25;
-                    this.burnDamage = type === 'fire_arrow' ? 5 : 0; // damage per detik saat terbakar
-                    this.burnDuration = type === 'fire_arrow' ? 3 : 0; // detik
+                    this.burnDamage = type === 'fire_arrow' ? 5 : 0;
+                    this.burnDuration = type === 'fire_arrow' ? 3 : 0;
                     this.speed = 50;
                     this.gravity = 9.8;
                 } else {
@@ -606,14 +674,12 @@
                 const moveVec = this.velocity.clone().multiplyScalar(delta);
                 this.mesh.position.add(moveVec);
                 
-                // Buat trail api untuk fire arrow
                 if (this.isFire) {
                     this.trailTimer += delta;
-                    if (this.trailTimer > 0.03) { // Setiap 30ms buat partikel baru
+                    if (this.trailTimer > 0.03) {
                         this.trailTimer = 0;
                         this.createTrailParticle();
                     }
-                    // Update partikel trail
                     for (let i = this.trailParticles.length - 1; i >= 0; i--) {
                         const p = this.trailParticles[i];
                         p.life -= delta;
@@ -626,7 +692,6 @@
                             p.mesh.material.opacity = p.life / p.maxLife;
                         }
                     }
-                    // Flicker cahaya api
                     if (this.fireLight) {
                         this.fireLight.intensity = 0.8 + Math.random() * 0.4;
                     }
@@ -646,11 +711,7 @@
                 const p = new THREE.Mesh(geo, mat);
                 p.position.copy(this.mesh.position);
                 scene.add(p);
-                this.trailParticles.push({
-                    mesh: p,
-                    life: 0.5,
-                    maxLife: 0.5
-                });
+                this.trailParticles.push({ mesh: p, life: 0.5, maxLife: 0.5 });
             }
             
             checkDroneHit(drones) {
@@ -666,7 +727,6 @@
                 if (!this.alive) return;
                 this.alive = false;
                 scene.remove(this.mesh);
-                // Hapus trail particles
                 if (this.trailParticles) {
                     this.trailParticles.forEach(p => scene.remove(p.mesh));
                 }
@@ -674,7 +734,7 @@
         }
 
         function shootWeapon() {
-            if (!controls.isLocked) return;
+            if (!controls.isLocked || isPaused) return;
             if (currentWeapon === 'arrow') {
                 if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
                 inventory.arrows--;
@@ -698,7 +758,7 @@
             saveGame();
         }
 
-        // ============ DRONE ENEMY SYSTEM (dengan Burn Effect) ============
+        // ============ DRONE ENEMY SYSTEM ============
         class PatrolDrone {
             constructor(spawnPos, patrolRadius = 40) {
                 this.group = new THREE.Group();
@@ -720,7 +780,6 @@
                 this.respawnTimer = 0;
                 this.homeSpawn = spawnPos.clone();
                 
-                // BURN EFFECT
                 this.burning = false;
                 this.burnTimer = 0;
                 this.burnDamageTimer = 0;
@@ -801,13 +860,30 @@
                 this.destroyed = true;
                 this.respawnTimer = 60;
                 this.group.visible = false;
+                
+                // 🔧 FIX: Sembunyikan semua bar UI
                 this.hpBarEl.style.display = 'none';
                 this.burnBarEl.style.display = 'none';
+                
+                // 🔧 FIX: Hapus semua partikel api yang masih aktif
+                this.burnParticles.forEach(p => {
+                    scene.remove(p);
+                    if (p.geometry) p.geometry.dispose();
+                    if (p.material) p.material.dispose();
+                });
+                this.burnParticles = [];
+                
+                // Reset state terbakar
+                this.burning = false;
+                this.burnTimer = 0;
+                
                 showNotification("💥 DRONE HANCUR!");
                 
                 if (quest.active && quest.type === 'destroy_drones' && !quest.completed) {
                     quest.current++;
+                    totalKills++;
                     updateQuestUI();
+                    updateKillCounter();
                     if (quest.current >= quest.target) {
                         quest.completed = true;
                         showNotification("🎉 MISI SELESAI!", false);
@@ -825,13 +901,11 @@
                 this.burnTimer -= delta;
                 this.burnDamageTimer += delta;
                 
-                // Damage per detik
                 if (this.burnDamageTimer >= 1.0) {
                     this.burnDamageTimer = 0;
                     this.takeDamage(this.burnDamagePerSec);
                 }
                 
-                // Efek visual: partikel api di sekeliling drone
                 if (Math.random() < 0.3) {
                     const geo = new THREE.SphereGeometry(0.15, 6, 6);
                     const mat = new THREE.MeshBasicMaterial({ 
@@ -850,12 +924,13 @@
                     this.burnParticles.push(p);
                 }
                 
-                // Update partikel
                 for (let i = this.burnParticles.length - 1; i >= 0; i--) {
                     const p = this.burnParticles[i];
                     p.userData.life -= delta;
                     if (p.userData.life <= 0) {
                         scene.remove(p);
+                        if (p.geometry) p.geometry.dispose();
+                        if (p.material) p.material.dispose();
                         this.burnParticles.splice(i, 1);
                     } else {
                         p.position.y += p.userData.vy * delta;
@@ -864,15 +939,17 @@
                     }
                 }
                 
-                // Update burn bar
                 this.burnBarEl.style.display = 'block';
                 this.burnBarEl.querySelector('.drone-burn-fill').style.width = (this.burnTimer / 3 * 100) + '%';
                 
                 if (this.burnTimer <= 0) {
                     this.burning = false;
                     this.burnBarEl.style.display = 'none';
-                    // Hapus semua partikel
-                    this.burnParticles.forEach(p => scene.remove(p));
+                    this.burnParticles.forEach(p => {
+                        scene.remove(p);
+                        if (p.geometry) p.geometry.dispose();
+                        if (p.material) p.material.dispose();
+                    });
                     this.burnParticles = [];
                 }
             }
@@ -888,6 +965,9 @@
                         this.group.position.y = getTerrainHeight(this.homeSpawn.x, this.homeSpawn.z) + 8;
                         this.homePosition = this.group.position.clone();
                         this.group.visible = true; this.state = 'PATROL';
+                        this.burning = false;
+                        this.burnParticles.forEach(p => scene.remove(p));
+                        this.burnParticles = [];
                     }
                     return;
                 }
@@ -979,7 +1059,8 @@
             blocker.innerHTML = `
                 <h1 style="color: #ff0000;">☠️ GAME OVER</h1>
                 <p>Anda telah meninggal.</p>
-                <p style="color: #ffff00; margin-top: 20px;">Klik untuk respawn</p>
+                <p style="color: #ff4444;">Total Drone Dihancurkan: ${totalKills}</p>
+                <p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK RESPAWN ]</p>
             `;
             blocker.style.display = 'flex';
         }
@@ -1005,6 +1086,13 @@
             if (quest.completed) { progressEl.innerText = "✅ SELESAI"; progressEl.style.color = "#00ff00"; }
             else { progressEl.innerText = `${quest.current} / ${quest.target}`; progressEl.style.color = "#ffff00"; }
         }
+        function updateKillCounter() {
+            document.getElementById('kill-count').innerText = totalKills;
+            document.getElementById('kill-display').innerText = totalKills;
+            if (totalKills > 0) {
+                document.getElementById('kill-counter').style.display = 'block';
+            }
+        }
 
         function checkNearCampfire() {
             let near = false;
@@ -1018,6 +1106,72 @@
         const drones = [];
         drones.push(new PatrolDrone(new THREE.Vector3(30, 0, 30), 35));
         drones.push(new PatrolDrone(new THREE.Vector3(-40, 0, -20), 30));
+
+        // ============ MINIMAP ============
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        const MINIMAP_SIZE = 150;
+        const MINIMAP_RANGE = 80; // Berapa unit dunia yang ditampilkan
+
+        function updateMinimap() {
+            const ctx = minimapCtx;
+            const w = MINIMAP_SIZE, h = MINIMAP_SIZE;
+            
+            // Background
+            ctx.fillStyle = '#1a3300';
+            ctx.fillRect(0, 0, w, h);
+            
+            // Grid
+            ctx.strokeStyle = '#2d4c1e';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < w; i += 15) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke();
+            }
+            
+            const px = camera.position.x, pz = camera.position.z;
+            const scale = w / (MINIMAP_RANGE * 2);
+            
+            // Api unggun (oranye)
+            ctx.fillStyle = '#ff6600';
+            campfires.forEach(cf => {
+                const x = (cf.x - px) * scale + w/2;
+                const y = (cf.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) {
+                    ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+                }
+            });
+            
+            // Drone (merah)
+            ctx.fillStyle = '#ff0000';
+            drones.forEach(drone => {
+                if (drone.destroyed) return;
+                const x = (drone.group.position.x - px) * scale + w/2;
+                const y = (drone.group.position.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) {
+                    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+                }
+            });
+            
+            // Pemain (hijau, di tengah)
+            ctx.fillStyle = '#00ff00';
+            ctx.beginPath(); ctx.arc(w/2, h/2, 4, 0, Math.PI * 2); ctx.fill();
+            
+            // Arah pandang pemain
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            ctx.strokeStyle = '#00ff00';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(w/2, h/2);
+            ctx.lineTo(w/2 + dir.x * 10, h/2 + dir.z * 10);
+            ctx.stroke();
+            
+            // Border
+            ctx.strokeStyle = '#555';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, w, h);
+        }
 
         // ============ KONTROL PEMAIN ============
         const controls = new PointerLockControls(camera, document.body);
@@ -1033,14 +1187,42 @@
                 playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
                 updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
                 camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
-                blocker.innerHTML = `<h1>KLIK UNTUK MULAI</h1><p id="load-status" style="color: #ffff00; margin-top: 20px;">Siap!</p>`;
+                blocker.innerHTML = `
+                    <h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1>
+                    <p style="font-size: 16px;">🎮 Game Survival 3D dengan Combat System</p>
+                    <p>🔥 Senjata baru: <span style="color:#ff6600">Panah Api</span>!</p>
+                    <p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p>
+                    <p id="load-status" style="color: #888; margin-top: 10px;">Siap!</p>
+                `;
             }
             
             try { controls.lock(); } catch(e) {}
         });
 
-        controls.addEventListener('lock', () => { blocker.style.display = 'none'; });
-        controls.addEventListener('unlock', () => { if (!isGameOver) blocker.style.display = 'flex'; });
+        controls.addEventListener('lock', () => { 
+            blocker.style.display = 'none';
+            document.getElementById('pause-menu').style.display = 'none';
+            isPaused = false;
+        });
+        controls.addEventListener('unlock', () => { 
+            if (!isGameOver && !isPaused) {
+                blocker.style.display = 'flex';
+            }
+        });
+
+        // Pause menu functions (global)
+        window.resumeGame = function() {
+            document.getElementById('pause-menu').style.display = 'none';
+            isPaused = false;
+            controls.lock();
+        };
+        
+        window.saveAndResume = function() {
+            saveGame();
+            SoundManager.play('save');
+            showNotification("💾 Game Disimpan!");
+            resumeGame();
+        };
 
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
         let canJump = false;
@@ -1051,6 +1233,8 @@
 
         document.addEventListener('keydown', (e) => {
             try {
+                if (isPaused && e.code !== 'Escape') return;
+                
                 if (e.code === 'KeyW') moveForward = true;
                 if (e.code === 'KeyA') moveLeft = true;
                 if (e.code === 'KeyS') moveBackward = true;
@@ -1061,6 +1245,13 @@
                 if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
                     isSprinting = true;
                     document.getElementById('sprint-indicator').style.display = 'block';
+                }
+                
+                if (e.code === 'Escape' && controls.isLocked) {
+                    isPaused = true;
+                    controls.unlock();
+                    document.getElementById('pause-menu').style.display = 'block';
+                    return;
                 }
                 
                 if (e.code === 'KeyE' && controls.isLocked && !isPlacingCampfire) {
@@ -1104,14 +1295,13 @@
                 if (e.code === 'Digit2' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'arrow'; updateWeaponHUD(); }
                 if (e.code === 'Digit3' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'fire_arrow'; updateWeaponHUD(); }
                 
-                // CRAFT PANAH API (G) - butuh 1 kayu + 1 panah
                 if (e.code === 'KeyG' && controls.isLocked && !isPlacingCampfire) {
                     if ((inventory.wood || 0) >= 1 && (inventory.arrows || 0) >= 1) {
                         inventory.wood -= 1;
                         inventory.arrows -= 1;
                         inventory.fire_arrows = (inventory.fire_arrows || 0) + 1;
                         updateUI();
-                        showNotification("🔥 +1 Panah Api di-craft!");
+                        showNotification(" +1 Panah Api di-craft!");
                         SoundManager.play('craft');
                         saveGame();
                     } else {
@@ -1127,14 +1317,18 @@
                         saveGame();
                     }
                 }
-                if (e.code === 'KeyQ' && controls.isLocked) saveGame();
+                if (e.code === 'KeyQ' && controls.isLocked) {
+                    saveGame();
+                    SoundManager.play('save');
+                    showNotification("💾 Game Disimpan!");
+                }
                 if (e.code === 'KeyR' && controls.isLocked) loadGame();
             } catch(e) {}
         });
 
         document.addEventListener('mousedown', (e) => {
             try {
-                if (e.button === 0 && controls.isLocked && !isPlacingCampfire) shootWeapon();
+                if (e.button === 0 && controls.isLocked && !isPlacingCampfire && !isPaused) shootWeapon();
             } catch(e) {}
         });
 
@@ -1209,7 +1403,7 @@
             if (currentWeapon === 'arrow') { nameEl.innerText = '🏹 Panah'; ammoEl.innerText = `× ${inventory.arrows || 0}`; }
             else if (currentWeapon === 'fire_arrow') { nameEl.innerText = '🔥 Panah Api'; ammoEl.innerText = `× ${inventory.fire_arrows || 0}`; }
             else if (currentWeapon === 'stone') { nameEl.innerText = '🪨 Batu'; ammoEl.innerText = `× ${inventory.stones || 0}`; }
-            else { nameEl.innerText = '👊 Tangan Kosong'; ammoEl.innerText = '-'; }
+            else { nameEl.innerText = ' Tangan Kosong'; ammoEl.innerText = '-'; }
         }
         function showNotification(text, isError = false) {
             const notif = document.getElementById('notification');
@@ -1228,7 +1422,7 @@
                     player_id: playerId, pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
                     time_of_day: timeOfDay, inventory: inventory, chopped_trees: Array.from(choppedTrees),
                     campfires: campfires, health: playerHealth, stamina: playerStamina,
-                    hunger: playerHunger, thirst: playerThirst, quest: quest
+                    hunger: playerHunger, thirst: playerThirst, quest: quest, total_kills: totalKills
                 };
                 await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
             } catch(e) {}
@@ -1247,6 +1441,7 @@
                     playerThirst = data.thirst !== undefined ? data.thirst : MAX_THIRST;
                     if (data.inventory) inventory = data.inventory;
                     if (data.quest) quest = data.quest;
+                    if (data.total_kills) totalKills = data.total_kills;
                     
                     if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
                         data.chopped_trees.forEach(id => { choppedTrees.add(id); dummy.matrix.identity(); treeMesh.setMatrixAt(id, dummy.matrix); });
@@ -1257,16 +1452,24 @@
                         campfires.forEach(pos => { const campfire = createCampfireMesh(false); campfire.position.set(pos.x, pos.y, pos.z); campfireGroup.add(campfire); });
                     }
                     showNotification("✅ Game Dimuat!");
-                    updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
+                    updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI(); updateKillCounter();
                     return true;
                 }
             } catch(e) {}
             camera.position.set(0, getTerrainHeight(0, 0) + playerHeight, 0);
-            updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI();
+            updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI(); updateKillCounter();
             return false;
         }
         
-        setInterval(() => { if (controls.isLocked) saveGame(); }, 30000);
+        // Auto-save dengan indikator
+        setInterval(() => { 
+            if (controls.isLocked && !isPaused) {
+                saveGame();
+                const indicator = document.getElementById('autosave-indicator');
+                indicator.style.opacity = 1;
+                setTimeout(() => { indicator.style.opacity = 0; }, 1500);
+            }
+        }, 30000);
 
         // ============ GAME LOOP ============
         let prevTime = performance.now();
@@ -1315,7 +1518,6 @@
                     const hitDrone = proj.checkDroneHit(drones);
                     if (hitDrone) { 
                         hitDrone.takeDamage(proj.damage); 
-                        // Apply burn effect jika fire arrow
                         if (proj.burnDamage > 0) {
                             hitDrone.applyBurn(proj.burnDuration, proj.burnDamage);
                         }
@@ -1331,7 +1533,7 @@
                 });
                 document.getElementById('alert-indicator').style.display = anyDroneChasing ? 'block' : 'none';
 
-                if (controls.isLocked) {
+                if (controls.isLocked && !isPaused) {
                     velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta; velocity.y -= 25.0 * delta;
                     direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize();
 
@@ -1386,6 +1588,26 @@
                             lastFootstepTime = time;
                         }
                     }
+
+                    // Crosshair dinamis
+                    const crosshair = document.getElementById('crosshair');
+                    let targeting = false;
+                    raycaster.setFromCamera(center, camera);
+                    
+                    // Cek apakah mengarah ke drone
+                    for (const drone of drones) {
+                        if (drone.destroyed) continue;
+                        const screenPos = drone.group.position.clone();
+                        screenPos.project(camera);
+                        const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                        const dist = Math.sqrt(Math.pow(x - window.innerWidth/2, 2) + Math.pow(y - window.innerHeight/2, 2));
+                        if (dist < 50 && screenPos.z < 1) {
+                            targeting = true;
+                            break;
+                        }
+                    }
+                    crosshair.classList.toggle('target', targeting);
 
                     raycaster.setFromCamera(center, camera);
                     let promptShown = false;
@@ -1450,6 +1672,9 @@
 
                     document.getElementById('time').innerText = formatTime(timeOfDay);
                     document.getElementById('period').innerText = getTimePeriod(timeOfDay);
+                    
+                    // Update minimap setiap frame
+                    updateMinimap();
                 }
 
                 prevTime = time;
