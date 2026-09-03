@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WILDLANDS: Survival Needs</title>
+    <title>WILDLANDS: Survival & Sound</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
         #ui-layer {
@@ -136,7 +136,7 @@
     <div id="damage-overlay"></div>
     <div id="alert-indicator">⚠️ TERDETEKSI!</div>
     <div id="sprint-indicator">🏃 SPRINT</div>
-    <div id="campfire-bonus">🔥 Istirahat:<br>HP, Stamina, Lapar & Haus Pulih</div>
+    <div id="campfire-bonus">🔥 Istirahat:<br>Status Pulih Cepat</div>
     
     <div id="weapon-hud">
         <div class="weapon-name" id="weapon-name">👊 Tangan Kosong</div>
@@ -147,15 +147,14 @@
     <div id="controls-help">
         <strong>Kontrol:</strong><br>
         WASD: Gerak | SPACE: Lompat | SHIFT: Sprint<br>
-        E: Interaksi (Tebang/Pungut/Makan/Minum)<br>
-        C: Craft Api | F: Letakkan | T: Craft Panah<br>
-        Q: Save | R: Load | X: Batal
+        E: Interaksi | C: Craft Api | F: Letakkan<br>
+        T: Craft Panah | Q: Save | R: Load | X: Batal
     </div>
 
     <div id="blocker">
         <h1>KLIK UNTUK MULAI</h1>
         <p>Jaga kelangsungan hidup Anda: Makan Berry & Minum Air.</p>
-        <p>Sprint (<span style="color:#00ffff">SHIFT</span>) sekarang menguras stamina!</p>
+        <p>Tahan <span style="color:#00ffff">SHIFT</span> untuk sprint.</p>
         <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
     </div>
 
@@ -173,6 +172,104 @@
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
         import { createClient } from '@supabase/supabase-js';
+
+        // --- SOUND MANAGER (Web Audio API) ---
+        const SoundManager = {
+            ctx: null,
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            },
+            play(type) {
+                if (!this.ctx) this.init();
+                const now = this.ctx.currentTime;
+                
+                if (type === 'footstep') {
+                    const bufferSize = this.ctx.sampleRate * 0.08;
+                    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+                    const data = buffer.getChannelData(0);
+                    for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.5;
+                    const noise = this.ctx.createBufferSource();
+                    noise.buffer = buffer;
+                    const gain = this.ctx.createGain();
+                    noise.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.08);
+                    noise.start(now);
+                } 
+                else if (type === 'chop') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(150, now);
+                    osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now); osc.stop(now + 0.1);
+                }
+                else if (type === 'shoot_arrow') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(800, now);
+                    osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                    osc.start(now); osc.stop(now + 0.15);
+                }
+                else if (type === 'shoot_stone') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                    gain.gain.setValueAtTime(0.4, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now); osc.stop(now + 0.1);
+                }
+                else if (type === 'hit') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(100, now);
+                    osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+                    gain.gain.setValueAtTime(0.5, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                    osc.start(now); osc.stop(now + 0.2);
+                }
+                else if (type === 'eat' || type === 'drink') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(400, now);
+                    osc.frequency.linearRampToValueAtTime(600, now + 0.1);
+                    gain.gain.setValueAtTime(0.3, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                    osc.start(now); osc.stop(now + 0.1);
+                }
+                else if (type === 'craft') {
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(600, now);
+                    osc.frequency.linearRampToValueAtTime(800, now + 0.15);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                    osc.start(now); osc.stop(now + 0.15);
+                }
+            }
+        };
 
         // --- 1. SUPABASE SETUP ---
         const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
@@ -201,14 +298,15 @@
         const STAMINA_REGEN_RATE = 5;
         const STAMINA_REGEN_CAMPFIRE = 20;
         const HP_REGEN_CAMPFIRE = 5;
-        const HUNGER_DECAY = 1.5; // per detik
-        const THIRST_DECAY = 2.0; // per detik
+        const HUNGER_DECAY = 1.5;
+        const THIRST_DECAY = 2.0;
         const CAMPFIRE_RADIUS = 8;
         
         let isSprinting = false;
         let isNearCampfire = false;
         let currentWeapon = 'none';
         let starvationTimer = 0;
+        let isGameOver = false;
         
         let quest = {
             active: true, title: "Ancaman Udara", description: "Hancurkan 3 Drone Pencari",
@@ -318,7 +416,6 @@
                 const z = (Math.random() - 0.5) * worldSize * 0.8;
                 const y = getTerrainHeight(x, z);
                 if (y > waterLevel + 0.5 && y < 5) {
-                    // Batu
                     const stone = new THREE.Mesh(stoneGeo, stoneMat);
                     stone.position.set(x, y + 0.3, z);
                     stone.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
@@ -328,13 +425,12 @@
                     stoneGroup.add(stone);
                     stoneMeshes.push(stone);
                     
-                    // Berry (setiap 3 batu, 1 berry)
                     if (i % 3 === 0) {
                         const bush = new THREE.Group();
                         const berry = new THREE.Mesh(berryGeo, berryMat);
                         berry.position.y = 0.5;
                         bush.add(berry);
-                        bush.position.set(x + 2, y, z + 2); // Sedikit offset dari batu
+                        bush.position.set(x + 2, y, z + 2);
                         bush.userData.isBerry = true;
                         berryGroup.add(bush);
                         berryMeshes.push(bush);
@@ -518,9 +614,11 @@
             if (currentWeapon === 'arrow') {
                 if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
                 inventory.arrows--;
+                SoundManager.play('shoot_arrow');
             } else if (currentWeapon === 'stone') {
                 if (inventory.stones <= 0) { showNotification("❌ Batu habis!", true); return; }
                 inventory.stones--;
+                SoundManager.play('shoot_stone');
             } else {
                 showNotification("⚠️ Pilih senjata dulu (1/2)", true); return;
             }
@@ -605,6 +703,7 @@
             takeDamage(amount) {
                 if (this.destroyed) return;
                 this.hp = Math.max(0, this.hp - amount);
+                SoundManager.play('hit');
                 this.group.children.forEach(child => {
                     if (child.isMesh && child.material.color) {
                         const originalColor = child.material.color.getHex();
@@ -764,18 +863,15 @@
         }
 
         function gameOver() {
+            isGameOver = true;
             controls.unlock();
             const blocker = document.getElementById('blocker');
-            blocker.innerHTML = `<h1 style="color: #ff0000;">☠️ GAME OVER</h1><p>Anda telah meninggal.</p><p style="color: #ffff00; margin-top: 20px;">Klik untuk respawn</p>`;
+            blocker.innerHTML = `
+                <h1 style="color: #ff0000;">☠️ GAME OVER</h1>
+                <p>Anda telah meninggal.</p>
+                <p style="color: #ffff00; margin-top: 20px; animation: pulse 1s infinite;">Klik untuk respawn</p>
+            `;
             blocker.style.display = 'flex';
-            blocker.onclick = () => {
-                playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
-                updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-                camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
-                blocker.innerHTML = `<h1>KLIK UNTUK MULAI</h1><p>Jaga kelangsungan hidup Anda.</p><p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>`;
-                blocker.onclick = () => controls.lock();
-                controls.lock();
-            };
         }
 
         function updateHealthUI() { document.getElementById('health-text').innerText = Math.round(playerHealth); document.getElementById('health-bar').style.width = (playerHealth / MAX_HEALTH * 100) + '%'; }
@@ -820,11 +916,34 @@
         const loadStatus = document.getElementById('load-status');
         const promptUI = document.getElementById('interaction-prompt');
 
-        blocker.addEventListener('click', () => controls.lock());
-        controls.addEventListener('lock', () => blocker.style.display = 'none');
+        // PERBAIKAN: Single click listener yang menangani semua state
+        blocker.addEventListener('click', () => {
+            SoundManager.init(); // Pastikan audio context aktif
+            
+            if (isGameOver) {
+                // Respawn
+                isGameOver = false;
+                playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                camera.position.set(0, getTerrainHeight(0, 0) + 2.5, 0);
+                
+                blocker.innerHTML = `
+                    <h1>KLIK UNTUK MULAI</h1>
+                    <p>Jaga kelangsungan hidup Anda.</p>
+                    <p id="load-status" style="color: #ffff00; margin-top: 20px;">Memuat data...</p>
+                `;
+            }
+            controls.lock();
+        });
+
+        controls.addEventListener('lock', () => {
+            blocker.style.display = 'none';
+        });
+
         controls.addEventListener('unlock', () => {
-            blocker.style.display = 'flex';
-            if (!isPlacingCampfire) { promptUI.style.display = 'none'; document.getElementById('placement-status').style.display = 'none'; }
+            if (!isGameOver) {
+                blocker.style.display = 'flex';
+            }
         });
 
         let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
@@ -832,6 +951,7 @@
         const velocity = new THREE.Vector3();
         const direction = new THREE.Vector3();
         const playerHeight = 2.5;
+        let lastFootstepTime = 0;
 
         document.addEventListener('keydown', (e) => {
             if (e.code === 'KeyW') moveForward = true;
@@ -847,11 +967,11 @@
             }
             
             if (e.code === 'KeyE' && controls.isLocked && !isPlacingCampfire) {
-                // PRIORITAS INTERAKSI
                 const isNearWaterCheck = camera.position.y <= waterLevel + 2.6;
                 
                 if (isNearWaterCheck) {
                     playerThirst = Math.min(MAX_THIRST, playerThirst + 25);
+                    SoundManager.play('drink');
                     showNotification("💧 Segar! Haus berkurang.");
                     updateSurvivalUI();
                 } else if (targetBerry !== null) {
@@ -860,11 +980,11 @@
                     if (idx > -1) berryMeshes.splice(idx, 1);
                     playerHunger = Math.min(MAX_HUNGER, playerHunger + 20);
                     playerThirst = Math.min(MAX_THIRST, playerThirst + 5);
+                    SoundManager.play('eat');
                     showNotification("🍖 Enak! Lapar & Haus berkurang.");
                     updateSurvivalUI();
                     targetBerry = null;
                     promptUI.style.display = 'none';
-                    // Respawn berry
                     setTimeout(() => {
                         const x = (Math.random() - 0.5) * worldSize * 0.8;
                         const z = (Math.random() - 0.5) * worldSize * 0.8;
@@ -885,8 +1005,12 @@
             }
             
             if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
-                if ((inventory.wood || 0) >= 5) { inventory.wood -= 5; updateUI(); startPlacementMode(); }
-                else { showNotification(`Butuh 5 kayu! (Anda: ${inventory.wood || 0})`, true); }
+                if ((inventory.wood || 0) >= 5) { 
+                    inventory.wood -= 5; updateUI(); startPlacementMode(); 
+                    SoundManager.play('craft');
+                } else { 
+                    showNotification(`Butuh 5 kayu! (Anda: ${inventory.wood || 0})`, true); 
+                }
             }
             if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) placeCampfire();
             if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) cancelPlacement();
@@ -896,7 +1020,9 @@
             if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
                 if ((inventory.wood || 0) >= 2) {
                     inventory.wood -= 2; inventory.arrows = (inventory.arrows || 0) + 3;
-                    updateUI(); showNotification("🏹 +3 Panah di-craft!"); saveGame();
+                    updateUI(); showNotification("🏹 +3 Panah di-craft!"); 
+                    SoundManager.play('craft');
+                    saveGame();
                 } else { showNotification(`Butuh 2 kayu!`, true); }
             }
             if (e.code === 'KeyQ' && controls.isLocked) saveGame();
@@ -921,6 +1047,7 @@
         function chopTree(instanceId) {
             dummy.matrix.identity(); treeMesh.setMatrixAt(instanceId, dummy.matrix); treeMesh.instanceMatrix.needsUpdate = true;
             choppedTrees.add(instanceId); inventory.wood += 1; updateUI();
+            SoundManager.play('chop');
             showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
             targetInstanceId = null; promptUI.style.display = 'none'; saveGame();
         }
@@ -1114,23 +1241,19 @@
                     velocity.y = 0; camera.position.y = groundLevel + playerHeight; canJump = true;
                 }
 
-                // === PERBAIKAN BUG: STAMINA DRAIN & REGEN ===
+                // === SISTEM SURVIVAL & STAMINA ===
                 checkNearCampfire();
                 if (canSprint) {
-                    // KURANGI stamina saat sprint
                     playerStamina = Math.max(0, playerStamina - STAMINA_DRAIN_RATE * delta);
                 } else if (isNearCampfire) {
-                    // Pulihkan semua status lebih cepat di dekat api unggun
                     playerHealth = Math.min(MAX_HEALTH, playerHealth + HP_REGEN_CAMPFIRE * delta);
                     playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_CAMPFIRE * delta);
                     playerHunger = Math.min(MAX_HUNGER, playerHunger + 2.0 * delta);
                     playerThirst = Math.min(MAX_THIRST, playerThirst + 2.0 * delta);
                 } else {
-                    // Stamina pulih normal saat tidak sprint
                     playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_RATE * delta);
                 }
 
-                // === SISTEM KELAPARAN & KEHAUSAN ===
                 playerHunger = Math.max(0, playerHunger - HUNGER_DECAY * delta);
                 playerThirst = Math.max(0, playerThirst - THIRST_DECAY * delta);
 
@@ -1146,6 +1269,15 @@
                 }
 
                 updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+
+                // SOUND: Footstep logic
+                if (isMoving && canJump) {
+                    const stepInterval = isSprinting ? 300 : 500;
+                    if (time - lastFootstepTime > stepInterval) {
+                        SoundManager.play('footstep');
+                        lastFootstepTime = time;
+                    }
+                }
 
                 // Raycasting & Prompts
                 raycaster.setFromCamera(center, camera);
