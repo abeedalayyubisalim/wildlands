@@ -578,7 +578,20 @@
         moon.add(moonGlow);
 
         // ============ TERRAIN HEIGHT FUNCTION ============
-        function getTerrainHeight(x, z) {
+        // Jarak titik (px,pz) ke ruas garis (ax,az)-(bx,bz) - dipakai buat "mengukir" jalur air
+        // terjun & jalan setapak di atas medan yang udah ada, dan cari t (0..1, posisi di
+        // sepanjang ruasnya) buat ngelerp ketinggian/warna di sepanjang jalurnya.
+        function distToSegment(px, pz, ax, az, bx, bz) {
+            const abx = bx - ax, abz = bz - az;
+            const apx = px - ax, apz = pz - az;
+            const abLen2 = abx * abx + abz * abz;
+            let t = abLen2 > 0 ? (apx * abx + apz * abz) / abLen2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            const cx = ax + abx * t, cz = az + abz * t;
+            return { dist: Math.hypot(px - cx, pz - cz), t };
+        }
+
+        function getBaseTerrainHeight(x, z) {
             let y = 0;
             y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
             y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
@@ -586,9 +599,59 @@
             // Gunung di area tertentu
             const distFromCenter = Math.sqrt(Math.pow(x - 500, 2) + Math.pow(z - 500, 2));
             if (distFromCenter > 250 && distFromCenter < 400) {
-                y += Math.max(0, 20 - (distFromCenter - 250) * 0.1) * 2;
+                let mountain = Math.max(0, 20 - (distFromCenter - 250) * 0.1) * 2;
+                // Noise tambahan biar puncaknya nggak mulus kayak kubah, lebih berbatu/rugged
+                mountain += Math.sin(x * 0.4) * Math.cos(z * 0.37) * 2.5 * (mountain / 40);
+                y += mountain;
             }
             return y;
+        }
+
+        // ============ AIR TERJUN ============
+        // "Diukir" nembus lereng gunung: dari titik atas (di ketinggian gunung) turun ke titik
+        // bawah (nyaris level air, jadi kolamnya kebentuk otomatis) - lihat createWaterfall().
+        const WATERFALL_TOP = { x: 712, z: 288 };
+        const WATERFALL_BOTTOM = { x: 670, z: 330 };
+        const WATERFALL_HALF_WIDTH = 4;
+        const WATERFALL_POOL_Y = -1.35;
+        const WATERFALL_TOP_Y = getBaseTerrainHeight(WATERFALL_TOP.x, WATERFALL_TOP.z);
+
+        function getTerrainHeight(x, z) {
+            const seg = distToSegment(x, z, WATERFALL_TOP.x, WATERFALL_TOP.z, WATERFALL_BOTTOM.x, WATERFALL_BOTTOM.z);
+            const channelR = WATERFALL_HALF_WIDTH * 2.2;
+            if (seg.dist < channelR) {
+                const chuteY = WATERFALL_TOP_Y + (WATERFALL_POOL_Y - WATERFALL_TOP_Y) * seg.t;
+                const blend = 1 - seg.dist / channelR;
+                const base = getBaseTerrainHeight(x, z);
+                return base * (1 - blend) + chuteY * blend;
+            }
+            return getBaseTerrainHeight(x, z);
+        }
+
+        // ============ JALAN SETAPAK ============
+        // Sama kayak air terjun, jalan cuma "ditandain" sebagai lerp warna di atas medan yang
+        // udah ada (bukan geometry sendiri) - jadi tetep ngikutin kontur tanah dengan mulus.
+        const ROAD_COLOR = new THREE.Color(0xb08a5c);
+        const ROAD_WIDTH = 2.4;
+        const ROAD_BLEND = 2;
+        const ROAD_SEGMENTS = [];
+        function addRoadPath(points) {
+            for (let i = 0; i < points.length - 1; i++) ROAD_SEGMENTS.push([points[i], points[i + 1]]);
+        }
+        addRoadPath([{ x: 500, z: 500 }, { x: 525, z: 480 }, { x: 550, z: 460 }, { x: 550, z: 450 }]); // spawn -> desa
+        addRoadPath([{ x: 550, z: 450 }, { x: 610, z: 400 }, { x: WATERFALL_BOTTOM.x, z: WATERFALL_BOTTOM.z }]); // desa -> air terjun
+        addRoadPath([{ x: 550, z: 460 }, { x: 490, z: 460 }, { x: 460, z: 445 }, { x: 440, z: 440 }]); // cabang -> gua barat
+        addRoadPath([{ x: 550, z: 450 }, { x: 560, z: 510 }, { x: 570, z: 570 }]); // cabang -> gua timur
+
+        function roadBlendAt(x, z) {
+            let minDist = Infinity;
+            for (const [a, b] of ROAD_SEGMENTS) {
+                const d = distToSegment(x, z, a.x, a.z, b.x, b.z).dist;
+                if (d < minDist) minDist = d;
+            }
+            if (minDist > ROAD_WIDTH + ROAD_BLEND) return 0;
+            if (minDist <= ROAD_WIDTH) return 1;
+            return 1 - (minDist - ROAD_WIDTH) / ROAD_BLEND;
         }
 
         // Palet biome dipakai bareng semua chunk (dibikin sekali, di-lerp per-vertex tiap chunk
@@ -624,6 +687,12 @@
                 c = _tmpColorA.copy(BIOME_ROCK).lerp(BIOME_ROCK_DARK, 0.25).lerp(BIOME_SNOW, t);
             } else {
                 c = _tmpColorA.copy(BIOME_SNOW);
+            }
+            // Jalan setapak: warnanya di-lerp di atas biome yang udah dihitung, jadi jalannya
+            // tetep ngikutin kontur & shading tanah asli, cuma warnanya aja yang ketimpa.
+            if (y < 6) {
+                const rb = roadBlendAt(x, z);
+                if (rb > 0) c.lerp(ROAD_COLOR, rb * 0.9);
             }
             return c;
         }
@@ -1070,7 +1139,77 @@
         createCave(new THREE.Vector3(440, getTerrainHeight(440, 440), 440));
         createCave(new THREE.Vector3(570, getTerrainHeight(570, 570), 570));
 
+        // ============ AIR TERJUN (visual) ============
+        // Channel-nya udah "diukir" duluan di getTerrainHeight() - di sini tinggal bikin
+        // lembaran air yang jatuh ngikutin garis channel-nya, plus kolam & kabut di bawahnya.
+        function createWaterfall(topPos, bottomPos) {
+            const group = new THREE.Group();
+
+            // Basis rotasi custom: sumbu-Y lokal disejajarin ke arah jatuhnya air (top->bottom),
+            // sumbu-X lokal jadi lebar terjunan (horizontal, tegak lurus arah jatuh).
+            const dir3 = new THREE.Vector3().subVectors(bottomPos, topPos);
+            const fallLength = dir3.length();
+            const yAxis = dir3.clone().normalize();
+            let xAxis = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), yAxis);
+            if (xAxis.lengthSq() < 1e-6) xAxis.set(1, 0, 0);
+            xAxis.normalize();
+            const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+            const basis = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+            const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+            const waterTex = makeGlowTexture('rgba(235,248,255,0.95)', 'rgba(210,240,255,0.25)');
+            waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+            waterTex.repeat.set(1, 8);
+
+            const width = WATERFALL_HALF_WIDTH * 2;
+            const sheetGeo = new THREE.PlaneGeometry(width, fallLength, 1, 16);
+            const sheetMat = new THREE.MeshBasicMaterial({
+                map: waterTex, color: 0xcfeeff, transparent: true, opacity: 0.88,
+                side: THREE.DoubleSide, depthWrite: false
+            });
+            const sheet = new THREE.Mesh(sheetGeo, sheetMat);
+            sheet.quaternion.copy(quat);
+            group.add(sheet);
+
+            const mid = new THREE.Vector3().addVectors(topPos, bottomPos).multiplyScalar(0.5);
+            group.position.copy(mid);
+
+            // Kolam di bawah terjunan, pake sharedWaterMat yang sama kayak air di terrain
+            // biar shimmer-nya ikut ke-update otomatis bareng (lihat animate()).
+            const poolGeo = new THREE.CircleGeometry(WATERFALL_HALF_WIDTH * 3.5, 24);
+            poolGeo.rotateX(-Math.PI / 2);
+            const pool = new THREE.Mesh(poolGeo, sharedWaterMat);
+            pool.userData.sharedMaterial = true;
+            pool.position.set(bottomPos.x, WATERFALL_POOL_Y + 0.05, bottomPos.z);
+            scene.add(pool);
+
+            // Kabut/percikan di kolam bawah - dipakein tekstur glow yang sama kayak asap
+            // api unggun, cuma warnanya putih & animasinya beda (lihat animate()).
+            const mistTex = makeGlowTexture('rgba(255,255,255,0.7)', 'rgba(255,255,255,0)');
+            const mistSprites = [];
+            for (let i = 0; i < 10; i++) {
+                const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, transparent: true, opacity: 0, depthWrite: false }));
+                spr.scale.setScalar(2.5 + Math.random() * 2);
+                spr.position.set(bottomPos.x + (Math.random() - 0.5) * 7, WATERFALL_POOL_Y + Math.random() * 1.5, bottomPos.z + (Math.random() - 0.5) * 7);
+                spr.userData.life = 0.3 + Math.random() * 3; // dijadwalin nyala gantian, bukan bareng semua
+                spr.userData.baseX = spr.position.x; spr.userData.baseZ = spr.position.z;
+                scene.add(spr);
+                mistSprites.push(spr);
+            }
+
+            scene.add(group);
+            return { sheet, waterTex, mistSprites, pool };
+        }
+
+        const waterfallInstance = createWaterfall(
+            new THREE.Vector3(WATERFALL_TOP.x, WATERFALL_TOP_Y, WATERFALL_TOP.z),
+            new THREE.Vector3(WATERFALL_BOTTOM.x, WATERFALL_POOL_Y, WATERFALL_BOTTOM.z)
+        );
+
         // ============ VILLAGE & NPC (Lebih Detail) ============
+        // NPC dimatiin sementara sesuai permintaan - tinggal balikin flag ini ke true
+        // buat ngaktifin lagi Raka & Sari (fungsi createNPC-nya tetep utuh di bawah).
+        const NPCS_ENABLED = false;
         const villageGroup = new THREE.Group();
         scene.add(villageGroup);
         const npcs = [];
@@ -1078,45 +1217,74 @@
         function createVillage() {
             const villagePos = new THREE.Vector3(550, 0, 450);
             villagePos.y = getTerrainHeight(villagePos.x, villagePos.z);
-            
-            const housePositions = [
-                new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(15, 0, 5),
-                new THREE.Vector3(-10, 0, 10),
-                new THREE.Vector3(5, 0, -15)
-            ];
-            
-            housePositions.forEach(offset => {
+
+            // Rumah-rumah ditata dua baris ngikutin arah jalan setapak yang nyambung ke
+            // desa (bukan grid acak), jadi keliatan kayak "jalan utama desa" beneran.
+            // roadDir = arah dari cabang jalan (550,460) ke pusat desa (550,450).
+            const roadDir = new THREE.Vector3(0, 0, -1);
+            const perpDir = new THREE.Vector3(1, 0, 0);
+            const housePositions = [];
+            const rowsPerSide = 6;
+            const spacing = 16;
+            const rowOffset = 11;
+            // Ada danau kecil di sisi barat desa - sebelum masukin posisi rumah, cek dulu
+            // ketinggian tanahnya beneran di atas air (bukan cuma nebak), coba geser makin
+            // jauh dari sumbu jalan kalau kena danau, dan kalau tetep gagal ya dilewatin
+            // aja (nggak maksa naruh rumah ngambang/tenggelam di air).
+            for (let row = 0; row < rowsPerSide; row++) {
+                const along = roadDir.clone().multiplyScalar((row - rowsPerSide / 2 + 0.5) * spacing);
+                for (const side of [1, -1]) {
+                    let placed = false;
+                    for (let extra = 0; extra <= 18; extra += 6) {
+                        const offset = along.clone().add(perpDir.clone().multiplyScalar((rowOffset + extra) * side));
+                        const testPos = villagePos.clone().add(offset);
+                        if (getTerrainHeight(testPos.x, testPos.z) > -0.3) {
+                            housePositions.push(offset);
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            const roofColors = [0x654321, 0x7a3b2e, 0x555a3a];
+            housePositions.forEach((offset, idx) => {
                 const house = new THREE.Group();
                 const housePos = villagePos.clone().add(offset);
                 housePos.y = getTerrainHeight(housePos.x, housePos.z);
-                
-                const wallGeo = new THREE.BoxGeometry(6, 4, 6);
+
+                const scale = 0.85 + (idx % 3) * 0.12;
+                const wallGeo = new THREE.BoxGeometry(6 * scale, 4 * scale, 6 * scale);
                 const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B7355 });
                 const walls = new THREE.Mesh(wallGeo, wallMat);
-                walls.position.y = 2;
+                walls.position.y = 2 * scale;
                 walls.castShadow = true;
                 house.add(walls);
-                
-                const roofGeo = new THREE.ConeGeometry(4.5, 2, 4);
-                const roofMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
+
+                const roofGeo = new THREE.ConeGeometry(4.5 * scale, 2 * scale, 4);
+                const roofMat = new THREE.MeshStandardMaterial({ color: roofColors[idx % roofColors.length] });
                 const roof = new THREE.Mesh(roofGeo, roofMat);
-                roof.position.y = 5;
+                roof.position.y = 5 * scale;
                 roof.rotation.y = Math.PI / 4;
                 roof.castShadow = true;
                 house.add(roof);
-                
-                // Door
-                const doorGeo = new THREE.BoxGeometry(1.2, 2, 0.2);
+
+                // Door - selalu ngadep ke arah jalan (sumbu tengah desa)
+                const facingSign = offset.x >= 0 ? -1 : 1;
+                const doorGeo = new THREE.BoxGeometry(1.2 * scale, 2 * scale, 0.2);
                 const doorMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
                 const door = new THREE.Mesh(doorGeo, doorMat);
-                door.position.set(0, 1, 3);
+                door.position.set(facingSign * 3 * scale, 1 * scale, 0);
+                door.rotation.y = Math.PI / 2;
                 house.add(door);
-                
+
                 house.position.copy(housePos);
+                house.rotation.y = facingSign > 0 ? 0 : Math.PI;
                 villageGroup.add(house);
             });
-            
+
+            if (!NPCS_ENABLED) return;
+
             const npcPos = villagePos.clone();
             npcPos.y = getTerrainHeight(npcPos.x, npcPos.z);
             createNPC(npcPos, "Raka", "Penyintas Helikopter", [
@@ -1124,7 +1292,7 @@
                 { text: "Ada drone militer yang berpatroli di area ini. Hati-hati!", action: null },
                 { text: "Saya dengar ada Drone Induk yang mengendalikan semuanya. Kalahkan dia!", action: 'quest_hint' }
             ]);
-            
+
             const npc2Pos = villagePos.clone().add(new THREE.Vector3(8, 0, 8));
             npc2Pos.y = getTerrainHeight(npc2Pos.x, npc2Pos.z);
             createNPC(npc2Pos, "Sari", "Dokter Tim", [
@@ -2627,6 +2795,21 @@
                 // Shimmer air - satu material dibagi semua chunk jadi cukup diupdate sekali di sini
                 sharedWaterMat.opacity = 0.72 + Math.sin(time * 0.0015) * 0.05 + Math.sin(time * 0.0037) * 0.03;
                 sharedWaterMat.color.setHSL(0.57, 0.55, 0.32 + Math.sin(time * 0.0009) * 0.03);
+
+                // Air terjun: scroll tekstur ke bawah biar keliatan "mengalir", plus kabut
+                // di kolamnya nyala-mati gantian kayak percikan air.
+                waterfallInstance.waterTex.offset.y -= delta * 2.2;
+                waterfallInstance.sheet.material.opacity = 0.8 + Math.sin(time * 0.006) * 0.08;
+                waterfallInstance.mistSprites.forEach(s => {
+                    s.userData.life -= delta * 0.4;
+                    if (s.userData.life <= 0) {
+                        s.userData.life = 1.5 + Math.random() * 1.5;
+                        s.position.set(s.userData.baseX + (Math.random() - 0.5) * 3, WATERFALL_POOL_Y + Math.random() * 0.5, s.userData.baseZ + (Math.random() - 0.5) * 3);
+                    }
+                    const lifeT = THREE.MathUtils.clamp(s.userData.life, 0, 1);
+                    s.material.opacity = Math.sin(Math.min(lifeT, 1) * Math.PI) * 0.4;
+                    s.position.y += delta * 0.3;
+                });
 
                 const isNight = timeOfDay < 6 || timeOfDay > 19;
                 // Transisi bintang dibikin ngelerp halus di sekitar batas malam/siang (dulu
