@@ -6,17 +6,27 @@
     <title>WILDLANDS: Wildlife & Boss</title>
     <style>
         body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
+        /* ===== Gaya HUD "kaca" bersama - dulu semua panel cuma kotak item transparan flat
+           dengan border 1px polos. Sekarang dikasih gradasi, blur kaca, sudut lebih membulat,
+           dan sedikit glow di border biar kerasa lebih modern & "hidup". ===== */
+        #ui-layer, #quest-hud, #weapon-hud, #campfire-bonus, #kill-counter, #boss-hud,
+        #pause-menu, #npc-dialog, #minimap-container, #autosave-indicator, #chunk-info {
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        }
         #ui-layer {
-            position: absolute; top: 10px; left: 10px; color: #00ff00; 
-            background: rgba(0, 0, 0, 0.7); padding: 12px; border-radius: 5px;
+            position: absolute; top: 10px; left: 10px; color: #00ff88;
+            background: linear-gradient(160deg, rgba(10,20,15,0.82), rgba(5,10,8,0.72));
+            padding: 14px 16px; border-radius: 10px; border: 1px solid rgba(0,255,136,0.35);
+            box-shadow: 0 0 18px rgba(0,255,136,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
             pointer-events: none; min-width: 260px; font-size: 13px;
         }
-        .bar-container { width: 100%; height: 10px; background: #222; border: 1px solid #555; margin-top: 2px; margin-bottom: 5px; }
+        #ui-layer h3 { color: #baffe0; letter-spacing: 1px; text-shadow: 0 0 8px rgba(0,255,136,0.5); }
+        .bar-container { width: 100%; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid #444; border-radius: 5px; margin-top: 3px; margin-bottom: 6px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.6); }
         #health-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff6666); transition: width 0.3s; }
         #stamina-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #00aaff, #66ddff); transition: width 0.2s; }
         #hunger-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff8800, #ffaa44); transition: width 0.3s; }
         #thirst-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #0088ff, #44aaff); transition: width 0.3s; }
-        
+
         #crosshair {
             position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
             border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
@@ -32,20 +42,26 @@
         }
         #blocker {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85); color: white; display: flex;
+            background: radial-gradient(circle at 50% 40%, rgba(10,40,25,0.92), rgba(0,0,0,0.95));
+            color: white; display: flex;
             flex-direction: column; justify-content: center; align-items: center;
             z-index: 999; cursor: pointer; text-align: center;
         }
+        #blocker h1 { text-shadow: 0 0 20px rgba(0,255,136,0.5); letter-spacing: 2px; }
         #notification {
-            position: absolute; bottom: 20px; right: 20px; 
-            background: rgba(0, 255, 0, 0.2); color: #00ff00;
-            padding: 10px 20px; border-radius: 5px; border: 1px solid #00ff00;
-            opacity: 0; transition: opacity 0.5s; pointer-events: none;
+            position: absolute; bottom: 20px; right: 20px;
+            background: linear-gradient(135deg, rgba(0,40,20,0.85), rgba(0,15,10,0.85)); color: #00ff88;
+            padding: 10px 20px; border-radius: 8px; border: 1px solid #00ff88;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 14px rgba(0,255,136,0.15);
+            opacity: 0; transition: opacity 0.4s, transform 0.4s; pointer-events: none;
+            font-weight: bold; backdrop-filter: blur(4px);
         }
         #controls-help {
             position: absolute; bottom: 20px; left: 20px;
-            color: #aaa; font-size: 12px; background: rgba(0,0,0,0.5);
-            padding: 10px; border-radius: 5px; pointer-events: none;
+            color: #99aab5; font-size: 12px;
+            background: linear-gradient(160deg, rgba(10,14,20,0.75), rgba(5,7,10,0.7));
+            padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none; line-height: 1.5;
         }
         #placement-status {
             position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
@@ -69,92 +85,99 @@
         }
         #campfire-bonus {
             position: absolute; bottom: 180px; right: 20px;
-            color: #ffaa00; font-size: 13px; font-weight: bold; display: none;
-            background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 5px;
-            border: 1px solid #ffaa00;
+            color: #ffcc66; font-size: 13px; font-weight: bold; display: none;
+            background: linear-gradient(160deg, rgba(50,25,0,0.8), rgba(20,10,0,0.8)); padding: 8px 12px; border-radius: 8px;
+            border: 1px solid #ffaa00; box-shadow: 0 0 14px rgba(255,170,0,0.2);
         }
         #weapon-hud {
             position: absolute; bottom: 180px; left: 20px;
-            background: rgba(0,0,0,0.7); color: #fff;
-            padding: 10px 15px; border-radius: 5px;
-            border: 1px solid #555; pointer-events: none; min-width: 200px;
+            background: linear-gradient(160deg, rgba(15,17,22,0.82), rgba(6,7,10,0.82)); color: #fff;
+            padding: 10px 15px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12); pointer-events: none; min-width: 200px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         }
         #weapon-hud .weapon-name { color: #ffaa00; font-weight: bold; font-size: 14px; }
-        #weapon-hud .ammo { color: #00ff00; font-size: 18px; }
+        #weapon-hud .ammo { color: #00ff88; font-size: 18px; text-shadow: 0 0 8px rgba(0,255,136,0.4); }
         #weapon-hud .hint { color: #888; font-size: 11px; margin-top: 5px; }
-        
+
         #quest-hud {
             position: absolute; top: 10px; right: 10px;
-            background: rgba(0, 0, 0, 0.7); color: #ffff00;
-            padding: 12px; border-radius: 5px; border: 1px solid #ffff00;
+            background: linear-gradient(160deg, rgba(35,30,0,0.82), rgba(15,12,0,0.78)); color: #ffe066;
+            padding: 12px; border-radius: 10px; border: 1px solid #ffcc00;
+            box-shadow: 0 0 16px rgba(255,204,0,0.1);
             min-width: 220px; pointer-events: none;
         }
-        
+
         #minimap-container {
             position: absolute; bottom: 20px; right: 20px;
-            background: rgba(0, 0, 0, 0.7); border: 2px solid #555;
-            border-radius: 5px; padding: 5px; pointer-events: none;
+            background: linear-gradient(160deg, rgba(10,14,10,0.82), rgba(4,6,4,0.82));
+            border: 2px solid rgba(0,255,136,0.35); box-shadow: 0 0 16px rgba(0,0,0,0.4);
+            border-radius: 8px; padding: 6px; pointer-events: none;
         }
-        #minimap { display: block; background: #1a3300; }
-        
+        #minimap { display: block; background: #14260a; border-radius: 4px; }
+        #minimap-compass { text-align: center; color: #99ffcc; font-size: 10px; margin-top: 2px; letter-spacing: 1px; }
+
         #kill-counter {
             position: absolute; top: 50%; left: 20px; transform: translateY(-50%);
-            color: #ff4444; font-size: 16px; font-weight: bold;
-            background: rgba(0,0,0,0.7); padding: 8px 12px; border-radius: 5px;
-            border: 1px solid #ff4444; display: none;
+            color: #ff8888; font-size: 16px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(40,0,0,0.8), rgba(15,0,0,0.8)); padding: 8px 12px; border-radius: 8px;
+            border: 1px solid #ff4444; box-shadow: 0 0 14px rgba(255,68,68,0.15); display: none;
         }
         #autosave-indicator {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #00ff00; font-size: 14px; font-weight: bold;
-            background: rgba(0,0,0,0.7); padding: 8px 16px; border-radius: 5px;
-            border: 1px solid #00ff00; opacity: 0; pointer-events: none;
+            color: #00ff88; font-size: 14px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(0,35,20,0.85), rgba(0,12,8,0.85)); padding: 8px 16px; border-radius: 8px;
+            border: 1px solid #00ff88; opacity: 0; pointer-events: none;
             transition: opacity 0.3s;
         }
         #chunk-info {
             position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-            color: #00ffff; font-size: 12px; font-weight: bold;
-            background: rgba(0,0,0,0.7); padding: 5px 10px; border-radius: 3px;
+            color: #7ff2ff; font-size: 12px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(0,30,35,0.82), rgba(0,10,12,0.82)); padding: 5px 10px; border-radius: 6px;
             border: 1px solid #00ffff; opacity: 0; pointer-events: none;
             transition: opacity 0.3s;
         }
         #pause-menu {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.9); color: white; padding: 30px;
-            border-radius: 10px; border: 2px solid #00ff00; display: none;
+            background: linear-gradient(160deg, rgba(10,20,15,0.95), rgba(4,8,6,0.95)); color: white; padding: 30px;
+            border-radius: 14px; border: 2px solid #00ff88; display: none;
+            box-shadow: 0 0 40px rgba(0,255,136,0.15);
             text-align: center; min-width: 300px;
         }
-        #pause-menu h2 { color: #00ff00; margin-top: 0; }
+        #pause-menu h2 { color: #00ff88; margin-top: 0; text-shadow: 0 0 10px rgba(0,255,136,0.5); }
         #pause-menu button {
-            background: #00ff00; color: black; border: none;
+            background: linear-gradient(160deg, #00ffaa, #00cc77); color: #002616; border: none;
             padding: 10px 20px; margin: 5px; cursor: pointer;
             font-family: 'Courier New', monospace; font-weight: bold;
-            border-radius: 3px;
+            border-radius: 6px; box-shadow: 0 3px 10px rgba(0,0,0,0.3);
         }
-        #pause-menu button:hover { background: #00cc00; }
-        
+        #pause-menu button:hover { background: linear-gradient(160deg, #33ffbb, #00e088); }
+
         #npc-dialog {
             position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.9); color: white; padding: 20px;
-            border-radius: 10px; border: 2px solid #ffff00; display: none;
+            background: linear-gradient(160deg, rgba(30,28,0,0.95), rgba(12,11,0,0.95)); color: white; padding: 20px;
+            border-radius: 14px; border: 2px solid #ffe066; display: none;
+            box-shadow: 0 0 40px rgba(255,224,102,0.12);
             min-width: 400px; max-width: 600px; text-align: center;
         }
-        #npc-dialog .npc-name { color: #ffff00; font-weight: bold; font-size: 16px; margin-bottom: 10px; }
+        #npc-dialog .npc-name { color: #ffe066; font-weight: bold; font-size: 16px; margin-bottom: 10px; text-shadow: 0 0 8px rgba(255,224,102,0.4); }
         #npc-dialog .npc-text { font-size: 14px; line-height: 1.5; margin-bottom: 15px; }
         #npc-dialog button {
-            background: #ffff00; color: black; border: none;
+            background: linear-gradient(160deg, #ffe066, #ffc933); color: #2a2100; border: none;
             padding: 8px 16px; cursor: pointer; font-family: 'Courier New', monospace;
-            font-weight: bold; border-radius: 3px; margin: 0 5px;
+            font-weight: bold; border-radius: 6px; margin: 0 5px; box-shadow: 0 3px 10px rgba(0,0,0,0.25);
         }
-        #npc-dialog button:hover { background: #ffcc00; }
-        
+        #npc-dialog button:hover { background: linear-gradient(160deg, #fff0a3, #ffd966); }
+
         #boss-hud {
             position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
-            background: rgba(0,0,0,0.8); color: #ff0000; padding: 10px 20px;
-            border-radius: 5px; border: 2px solid #ff0000; display: none;
+            background: linear-gradient(160deg, rgba(35,0,0,0.88), rgba(15,0,0,0.88)); color: #ff6666; padding: 10px 20px;
+            border-radius: 8px; border: 2px solid #ff0000; display: none;
+            box-shadow: 0 0 24px rgba(255,0,0,0.25);
             min-width: 400px; text-align: center;
         }
-        #boss-hud .boss-name { font-weight: bold; font-size: 16px; margin-bottom: 5px; }
-        #boss-hud .boss-hp-bar-container { width: 100%; height: 15px; background: #330000; border: 1px solid #ff0000; }
+        #boss-hud .boss-name { font-weight: bold; font-size: 16px; margin-bottom: 5px; text-shadow: 0 0 8px rgba(255,0,0,0.6); }
+        #boss-hud .boss-hp-bar-container { width: 100%; height: 15px; background: #330000; border: 1px solid #ff0000; border-radius: 4px; overflow: hidden; }
         #boss-hud .boss-hp-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff4444); transition: width 0.3s; }
         
         .drone-hp-bar {
@@ -215,6 +238,7 @@
     
     <div id="minimap-container">
         <canvas id="minimap" width="150" height="150"></canvas>
+        <div id="minimap-compass">N ▲ PETA</div>
     </div>
     
     <div id="controls-help">
@@ -372,6 +396,7 @@
         // ============ STATE GAME ============
         let inventory = { wood: 0, arrows: 0, stones: 0, fire_arrows: 0, meat: 0 };
         let choppedTrees = new Set();
+        let minedRocks = new Set();
         let campfires = [];
         let isPlacingCampfire = false;
         let placementValid = false;
@@ -420,20 +445,84 @@
         renderer.shadowMap.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
-        scene.add(ambientLight);
+        // HemisphereLight (langit/tanah) dipakai gantiin AmbientLight polos - bikin area yang
+        // kena bayangan ikut kena rona warna langit/tanah, bukan abu-abu rata semua.
+        const hemiLight = new THREE.HemisphereLight(0x8fa8d9, 0x3a2f1e, 0.5);
+        scene.add(hemiLight);
         const sunLight = new THREE.DirectionalLight(0xffffff, 1);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.set(2048, 2048);
         const d = 150;
         sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
         sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
+        sunLight.shadow.camera.far = 500;
         scene.add(sunLight);
+        // Target-nya WAJIB ditambahin ke scene, soalnya tiap frame kita geser targetnya
+        // ngikutin posisi kamera (lihat animate()) supaya frustum bayangan selalu nyakup
+        // area sekitar pemain, bukan cuma area deket titik (0,0,0) doang.
+        scene.add(sunLight.target);
 
         // ============ SKY SYSTEM ============
+        // skyGroup dulu ditaruh di sekitar titik (0,0,0), padahal area main pemain ada di
+        // sekitar (500,*,500) - jadi awan/bintang/bulan sering nggak kelihatan sama sekali
+        // dari posisi main normal. Sekarang skyGroup di-update tiap frame biar selalu
+        // "ngikutin" kamera (kayak skybox beneran), jadi langit selalu kelihatan di sekitar
+        // pemain kemanapun dia jalan.
         const skyGroup = new THREE.Group();
         scene.add(skyGroup);
-        
+
+        function makeGlowTexture(innerColor, outerColor) {
+            const size = 128;
+            const cnv = document.createElement('canvas');
+            cnv.width = cnv.height = size;
+            const ctx = cnv.getContext('2d');
+            const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+            grad.addColorStop(0, innerColor);
+            grad.addColorStop(0.4, innerColor);
+            grad.addColorStop(1, outerColor);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+            const tex = new THREE.CanvasTexture(cnv);
+            return tex;
+        }
+
+        // Kubah langit gradasi (zenith lebih gelap, horizon ngikutin warna waktu) - dibikin
+        // dari bola gede sisi-dalam (BackSide) dengan warna per-vertex, jadi tetep se-gaya
+        // low-poly flat-shading yang lain, cuma sekarang ada nuansa gradasinya.
+        const skyDomeGeo = new THREE.SphereGeometry(450, 24, 16);
+        const skyDomeColors = [];
+        {
+            const posAttr = skyDomeGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                skyDomeColors.push(1, 1, 1); // diisi ulang tiap frame lewat updateSkyDomeColors()
+            }
+        }
+        skyDomeGeo.setAttribute('color', new THREE.Float32BufferAttribute(skyDomeColors, 3));
+        const skyDomeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
+        const skyDome = new THREE.Mesh(skyDomeGeo, skyDomeMat);
+        skyGroup.add(skyDome);
+
+        function updateSkyDomeColors(horizonColor, zenithColor) {
+            const posAttr = skyDomeGeo.attributes.position;
+            const colorAttr = skyDomeGeo.attributes.color;
+            const tmp = new THREE.Color();
+            for (let i = 0; i < posAttr.count; i++) {
+                const y = posAttr.getY(i);
+                const t = THREE.MathUtils.clamp((y / 450 + 0.15) / 1.0, 0, 1);
+                tmp.copy(horizonColor).lerp(zenithColor, t);
+                colorAttr.setXYZ(i, tmp.r, tmp.g, tmp.b);
+            }
+            colorAttr.needsUpdate = true;
+        }
+
+        // Matahari & bulan yang keliatan beneran (dulu cuma DirectionalLight tak kasat mata)
+        const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: makeGlowTexture('rgba(255,250,220,1)', 'rgba(255,200,80,0)'),
+            transparent: true, depthWrite: false, fog: false,
+        }));
+        sunSprite.scale.set(60, 60, 1);
+        skyGroup.add(sunSprite);
+
         const clouds = [];
         function createClouds() {
             const cloudGeo = new THREE.SphereGeometry(8, 8, 8);
@@ -472,15 +561,21 @@
             );
         }
         starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starsPositions, 3));
-        const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0 });
+        const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0, fog: false });
         const stars = new THREE.Points(starsGeo, starsMat);
         skyGroup.add(stars);
 
         const moonGeo = new THREE.SphereGeometry(15, 16, 16);
-        const moonMat = new THREE.MeshBasicMaterial({ color: 0xeeeeff });
+        const moonMat = new THREE.MeshBasicMaterial({ color: 0xeeeeff, fog: false });
         const moon = new THREE.Mesh(moonGeo, moonMat);
         moon.position.set(200, 150, -200);
         skyGroup.add(moon);
+        const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: makeGlowTexture('rgba(230,235,255,0.9)', 'rgba(200,210,255,0)'),
+            transparent: true, depthWrite: false, fog: false,
+        }));
+        moonGlow.scale.set(45, 45, 1);
+        moon.add(moonGlow);
 
         // ============ TERRAIN HEIGHT FUNCTION ============
         function getTerrainHeight(x, z) {
@@ -494,6 +589,43 @@
                 y += Math.max(0, 20 - (distFromCenter - 250) * 0.1) * 2;
             }
             return y;
+        }
+
+        // Palet biome dipakai bareng semua chunk (dibikin sekali, di-lerp per-vertex tiap chunk
+        // dibuat - lihat terrainColorAt()).
+        const BIOME_SAND = new THREE.Color(0xcbb679);
+        const BIOME_GRASS_A = new THREE.Color(0x4a7c2e);
+        const BIOME_GRASS_B = new THREE.Color(0x5c9436);
+        const BIOME_ROCK = new THREE.Color(0x6b6b63);
+        const BIOME_ROCK_DARK = new THREE.Color(0x514c46);
+        const BIOME_SNOW = new THREE.Color(0xf4f6fa);
+        const BIOME_DEEP = new THREE.Color(0x223a1a);
+        const _tmpColorA = new THREE.Color(), _tmpColorB = new THREE.Color();
+
+        // Satu material air dipakai bareng semua chunk (lihat createChunk) biar shimmer-nya
+        // bisa dianimasiin sekali tiap frame - lihat pemanggilan di animate().
+        const sharedWaterMat = new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.78, roughness: 0.15, metalness: 0.65, flatShading: true });
+
+        function terrainColorAt(x, z, y, slope) {
+            let c;
+            if (y < -2) {
+                c = _tmpColorA.copy(BIOME_DEEP);
+            } else if (y < -0.6) {
+                const t = THREE.MathUtils.clamp((-0.6 - y) / 1.4, 0, 1);
+                c = _tmpColorA.copy(BIOME_SAND).lerp(BIOME_DEEP, t);
+            } else if (y < 4.5) {
+                const grassMix = (Math.sin(x * 0.3) * Math.cos(z * 0.31) + 1) / 2;
+                const baseGrass = _tmpColorB.copy(BIOME_GRASS_A).lerp(BIOME_GRASS_B, grassMix);
+                const shoreT = THREE.MathUtils.clamp((y + 0.6) / 1.3, 0, 1);
+                c = _tmpColorA.copy(BIOME_SAND).lerp(baseGrass, shoreT);
+                if (slope > 0.8) c.lerp(BIOME_ROCK, THREE.MathUtils.clamp((slope - 0.8) / 1.4, 0, 0.85));
+            } else if (y < 9) {
+                const t = THREE.MathUtils.clamp((y - 4.5) / 4.5, 0, 1);
+                c = _tmpColorA.copy(BIOME_ROCK).lerp(BIOME_ROCK_DARK, 0.25).lerp(BIOME_SNOW, t);
+            } else {
+                c = _tmpColorA.copy(BIOME_SNOW);
+            }
+            return c;
         }
 
         // ============ CHUNK MANAGEMENT ============
@@ -511,18 +643,22 @@
             geometry.rotateX(-Math.PI / 2);
             const posAttribute = geometry.attributes.position;
             const colors = [];
-            const colorObj = new THREE.Color();
 
+            // Biome per-vertex diperhalus: dulu cuma 4 pita warna berdasarkan tinggi doang
+            // (grass/rock/snow), sekarang nambah pasir di tepi air, variasi dua warna rumput
+            // biar nggak keliatan rata polos, dan lereng curam (dihitung dari kemiringan lokal)
+            // ikut menular jadi warna batu meski ketinggiannya masih di zona "rumput".
             for (let i = 0; i < posAttribute.count; i++) {
                 const x = posAttribute.getX(i) + cx * CHUNK_SIZE;
                 const z = posAttribute.getZ(i) + cz * CHUNK_SIZE;
                 const y = getTerrainHeight(x, z);
                 posAttribute.setY(i, y);
-                if (y < -2) colorObj.setHex(0x2d4c1e);
-                else if (y < 3) colorObj.setHex(0x4a7c2e);
-                else if (y < 6) colorObj.setHex(0x6b6b6b);
-                else colorObj.setHex(0xffffff);
-                colors.push(colorObj.r, colorObj.g, colorObj.b);
+
+                const eps = 1.5;
+                const slope = (Math.abs(getTerrainHeight(x + eps, z) - y) + Math.abs(getTerrainHeight(x, z + eps) - y)) / eps;
+
+                const c = terrainColorAt(x, z, y, slope);
+                colors.push(c.r, c.g, c.b);
             }
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
             geometry.computeVertexNormals();
@@ -532,7 +668,12 @@
 
             const waterGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 20, 20);
             waterGeo.rotateX(-Math.PI / 2);
-            const water = new THREE.Mesh(waterGeo, new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.75, roughness: 0.2, metalness: 0.6, flatShading: true }));
+            // Semua chunk pakai satu material air yang sama (sharedWaterMat) biar shimmer-nya
+            // bisa dianimasiin sekali tiap frame tanpa harus loop semua chunk yang lagi kemuat -
+            // makanya ditandain userData.sharedMaterial biar removeChunk() nggak ikut nge-dispose
+            // dia pas chunk-nya di-unload (soalnya chunk lain masih mamake).
+            const water = new THREE.Mesh(waterGeo, sharedWaterMat);
+            water.userData.sharedMaterial = true;
             water.position.y = -1.5;
             chunkGroup.add(water);
 
@@ -597,8 +738,34 @@
             bushMesh.count = bushIndex;
             chunkGroup.add(bushMesh);
 
+            // GEROMBOLAN BATU (bisa ditambang [E] buat dapet batu - dulu nggak ada sumber batu
+            // sama sekali di game ini padahal senjata "Batu" butuh stok batu buat ditembakin)
+            const rockCount = 18;
+            const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
+            const rockMat = new THREE.MeshStandardMaterial({ color: 0x777777, flatShading: true, roughness: 0.95 });
+            const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rockCount);
+            rockMesh.castShadow = true; rockMesh.receiveShadow = true;
+            let rockIndex = 0;
+
+            for (let i = 0; i < rockCount; i++) {
+                const x = (Math.random() - 0.5) * CHUNK_SIZE;
+                const z = (Math.random() - 0.5) * CHUNK_SIZE;
+                const worldX = x + cx * CHUNK_SIZE;
+                const worldZ = z + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(worldX, worldZ);
+                if (y > -1 && y < 5) {
+                    dummy.position.set(x, y + 0.25, z);
+                    dummy.scale.setScalar(0.6 + Math.random() * 0.7);
+                    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+                    dummy.updateMatrix();
+                    rockMesh.setMatrixAt(rockIndex++, dummy.matrix);
+                }
+            }
+            rockMesh.count = rockIndex;
+            chunkGroup.add(rockMesh);
+
             scene.add(chunkGroup);
-            chunks.set(key, { group: chunkGroup, terrain, water, treeMesh1, treeMesh2, bushMesh, cx, cz });
+            chunks.set(key, { group: chunkGroup, terrain, water, treeMesh1, treeMesh2, bushMesh, rockMesh, cx, cz });
         }
 
         function removeChunk(cx, cz) {
@@ -608,7 +775,10 @@
                 scene.remove(chunk.group);
                 chunk.group.traverse((child) => {
                     if (child.geometry) child.geometry.dispose();
-                    if (child.material) {
+                    // Material yang ditandain "sharedMaterial" (misalnya sharedWaterMat) dipakai
+                    // bareng-bareng semua chunk, jadi JANGAN di-dispose di sini - chunk lain yang
+                    // masih kemuat bakal ikut rusak renderingnya kalau materialnya kebuang.
+                    if (child.material && !(child.userData && child.userData.sharedMaterial)) {
                         if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
                         else child.material.dispose();
                     }
@@ -1382,6 +1552,25 @@
         // ============ CAMPFIRE SYSTEM ============
         const campfireGroup = new THREE.Group();
         scene.add(campfireGroup);
+        const campfireSmokeTexture = makeGlowTexture('rgba(200,200,200,0.55)', 'rgba(200,200,200,0)');
+
+        // ============ KUNANG-KUNANG MALAM (atmosfer) ============
+        // Ngikutin posisi kamera (cuma x/z) kayak skyGroup, tiap kunang-kunang punya offset &
+        // goyangan sendiri di sekitar situ, jadi kesannya selalu ada di sekeliling pemain
+        // kemanapun jalan, dan cuma keliatan pas malam (opacity-nya ikut nightFade).
+        const fireflyGroup = new THREE.Group();
+        scene.add(fireflyGroup);
+        const fireflyTexture = makeGlowTexture('rgba(255,255,150,1)', 'rgba(255,240,80,0)');
+        const fireflies = [];
+        for (let i = 0; i < 35; i++) {
+            const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireflyTexture, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+            spr.scale.set(0.5, 0.5, 1);
+            spr.userData.offset = new THREE.Vector3((Math.random() - 0.5) * 60, 0.6 + Math.random() * 2.5, (Math.random() - 0.5) * 60);
+            spr.userData.phase = Math.random() * Math.PI * 2;
+            spr.userData.speed = 0.3 + Math.random() * 0.4;
+            fireflyGroup.add(spr);
+            fireflies.push(spr);
+        }
         let campfirePreview = null;
 
         function createCampfireMesh(isPreview = false) {
@@ -1420,9 +1609,29 @@
                 const fire = new THREE.Mesh(fireGeo, fireMat);
                 fire.position.y = 0.4; fire.name = 'fireMesh';
                 group.add(fire);
+                // Inti api yang lebih terang/kekuningan di dalam nyala oranye luar - dulu cuma
+                // satu kerucut polos, jadi kurang "hidup".
+                const fireInnerGeo = new THREE.ConeGeometry(0.14, 0.5, 8);
+                const fireInnerMat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.9 });
+                const fireInner = new THREE.Mesh(fireInnerGeo, fireInnerMat);
+                fireInner.position.y = 0.55; fireInner.name = 'fireMeshInner';
+                group.add(fireInner);
                 const light = new THREE.PointLight(0xffaa00, 2, 15);
                 light.position.y = 0.5; light.castShadow = true;
                 group.add(light);
+
+                // Asap ngepul terus-terusan (dulu cuma ada partikel pas kena "burn" musuh, api
+                // unggun pemain sendiri nggak pernah ngeluarin asap sama sekali).
+                const smokeSprites = [];
+                for (let i = 0; i < 5; i++) {
+                    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: campfireSmokeTexture, transparent: true, opacity: 0, depthWrite: false }));
+                    spr.scale.set(0.4, 0.4, 1);
+                    spr.userData.life = 0;
+                    group.add(spr);
+                    smokeSprites.push(spr);
+                }
+                group.userData.smoke = smokeSprites;
+                group.userData.smokeTimer = Math.random();
             }
             return group;
         }
@@ -1916,9 +2125,12 @@
         function updateMinimap() {
             const ctx = minimapCtx;
             const w = MINIMAP_SIZE, h = MINIMAP_SIZE;
-            ctx.fillStyle = '#1a3300';
+            const bgGrad = ctx.createRadialGradient(w/2, h/2, 8, w/2, h/2, w/2);
+            bgGrad.addColorStop(0, '#22400f');
+            bgGrad.addColorStop(1, '#0c1808');
+            ctx.fillStyle = bgGrad;
             ctx.fillRect(0, 0, w, h);
-            ctx.strokeStyle = '#2d4c1e';
+            ctx.strokeStyle = 'rgba(70,120,45,0.4)';
             ctx.lineWidth = 1;
             for (let i = 0; i < w; i += 15) {
                 ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
@@ -1971,19 +2183,29 @@
                 if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); }
             });
             
-            ctx.fillStyle = '#00ff00';
-            ctx.beginPath(); ctx.arc(w/2, h/2, 4, 0, Math.PI * 2); ctx.fill();
+            // Marker pemain: dulu cuma titik bulat + garis arah pendek, sekarang panah
+            // segitiga yang beneran muter ngikutin arah hadap kamera.
             const dir = new THREE.Vector3();
             camera.getWorldDirection(dir);
-            ctx.strokeStyle = '#00ff00';
-            ctx.lineWidth = 2;
+            const heading = Math.atan2(dir.x, -dir.z);
+            ctx.save();
+            ctx.translate(w/2, h/2);
+            ctx.fillStyle = 'rgba(0,255,136,0.25)';
+            ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+            ctx.rotate(heading);
+            ctx.fillStyle = '#00ff88';
             ctx.beginPath();
-            ctx.moveTo(w/2, h/2);
-            ctx.lineTo(w/2 + dir.x * 10, h/2 + dir.z * 10);
-            ctx.stroke();
-            ctx.strokeStyle = '#555';
+            ctx.moveTo(0, -8);
+            ctx.lineTo(5, 6);
+            ctx.lineTo(0, 3);
+            ctx.lineTo(-5, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            ctx.strokeStyle = 'rgba(0,255,136,0.5)';
             ctx.lineWidth = 2;
-            ctx.strokeRect(0, 0, w, h);
+            ctx.strokeRect(1, 1, w - 2, h - 2);
         }
 
         // ============ KONTROL PEMAIN ============
@@ -2074,16 +2296,19 @@
                                 showNotification("💧 Segar! Haus berkurang.");
                                 updateSurvivalUI();
                             } else {
-                                // Cek pohon
+                                // Cek pohon & batu (key dikasih prefix chunk biar nggak numpuk-tabrakan
+                                // sama instance id di chunk lain yang kebetulan angkanya sama)
                                 let treeFound = false;
                                 chunks.forEach(chunk => {
                                     if (treeFound) return;
+                                    const chunkPrefix = `${chunk.cx},${chunk.cz}`;
                                     if (chunk.treeMesh1) {
                                         const intersects1 = raycaster.intersectObject(chunk.treeMesh1);
                                         if (intersects1.length > 0 && intersects1[0].distance < 6) {
                                             const instanceId = intersects1[0].instanceId;
-                                            if (!choppedTrees.has(instanceId)) {
-                                                chopTree(instanceId, chunk.treeMesh1);
+                                            const key = `${chunkPrefix}:t1:${instanceId}`;
+                                            if (!choppedTrees.has(key)) {
+                                                chopTree(key, instanceId, chunk.treeMesh1);
                                                 treeFound = true;
                                             }
                                         }
@@ -2092,14 +2317,26 @@
                                         const intersects2 = raycaster.intersectObject(chunk.treeMesh2);
                                         if (intersects2.length > 0 && intersects2[0].distance < 6) {
                                             const instanceId = intersects2[0].instanceId;
-                                            if (!choppedTrees.has(instanceId)) {
-                                                chopTree(instanceId, chunk.treeMesh2);
+                                            const key = `${chunkPrefix}:t2:${instanceId}`;
+                                            if (!choppedTrees.has(key)) {
+                                                chopTree(key, instanceId, chunk.treeMesh2);
+                                                treeFound = true;
+                                            }
+                                        }
+                                    }
+                                    if (!treeFound && chunk.rockMesh) {
+                                        const intersectsR = raycaster.intersectObject(chunk.rockMesh);
+                                        if (intersectsR.length > 0 && intersectsR[0].distance < 6) {
+                                            const instanceId = intersectsR[0].instanceId;
+                                            const key = `${chunkPrefix}:rock:${instanceId}`;
+                                            if (!minedRocks.has(key)) {
+                                                mineRock(key, instanceId, chunk.rockMesh);
                                                 treeFound = true;
                                             }
                                         }
                                     }
                                 });
-                                
+
                                 if (!treeFound) {
                                     showNotification("⚠️ Tidak ada yang bisa diinteraksi!", true);
                                 }
@@ -2171,17 +2408,37 @@
             } catch(e) {}
         });
 
-        function chopTree(instanceId, treeMesh) {
+        // Nyembunyiin instance dari InstancedMesh dengan cara di-nol-in skalanya - sebelumnya
+        // kode ini reset matrix ke identity, yang cuma mindahin pohon ke titik (0,0,0) lokal
+        // chunk (bukan beneran nyembunyiin), jadi tiap nebang pohon malah muncul "pohon hantu"
+        // ukuran penuh nangkring di pojok chunk. Skala 0 = beneran hilang dari layar.
+        function hideInstance(mesh, instanceId) {
             const dummy = new THREE.Object3D();
-            dummy.matrix.identity();
-            treeMesh.setMatrixAt(instanceId, dummy.matrix);
-            treeMesh.instanceMatrix.needsUpdate = true;
-            
-            choppedTrees.add(instanceId);
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(instanceId, dummy.matrix);
+            mesh.instanceMatrix.needsUpdate = true;
+        }
+
+        function chopTree(key, instanceId, treeMesh) {
+            hideInstance(treeMesh, instanceId);
+            choppedTrees.add(key);
             inventory.wood += 1;
             updateUI();
             SoundManager.play('chop');
             showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
+            targetInstanceId = null;
+            promptUI.style.display = 'none';
+            saveGame();
+        }
+
+        function mineRock(key, instanceId, rockMesh) {
+            hideInstance(rockMesh, instanceId);
+            minedRocks.add(key);
+            inventory.stones = (inventory.stones || 0) + 2;
+            updateUI();
+            SoundManager.play('chop');
+            showNotification(`+2 Batu! (Total: ${inventory.stones})`);
             targetInstanceId = null;
             promptUI.style.display = 'none';
             saveGame();
@@ -2247,6 +2504,7 @@
                 const saveData = {
                     player_id: playerId, pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
                     time_of_day: timeOfDay, inventory: inventory, chopped_trees: Array.from(choppedTrees),
+                    mined_rocks: Array.from(minedRocks),
                     campfires: campfires, health: playerHealth, stamina: playerStamina,
                     hunger: playerHunger, thirst: playerThirst, quest: quest, total_kills: totalKills,
                     total_animals: totalAnimals, boss_defeated: bossDefeated
@@ -2273,6 +2531,9 @@
                     if (data.boss_defeated) bossDefeated = data.boss_defeated;
                     if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
                         data.chopped_trees.forEach(id => choppedTrees.add(id));
+                    }
+                    if (data.mined_rocks && Array.isArray(data.mined_rocks)) {
+                        data.mined_rocks.forEach(id => minedRocks.add(id));
                     }
                     if (data.campfires && Array.isArray(data.campfires)) {
                         campfires = data.campfires;
@@ -2325,28 +2586,92 @@
                 const currentSkyColor = getSkyColor(timeOfDay);
                 scene.background = currentSkyColor; scene.fog.color = currentSkyColor;
 
+                // Kubah langit & langit-langit dekorasi (awan/bintang/bulan/matahari) selalu
+                // ngikutin posisi kamera, biar keliatan "tak terhingga" kemanapun pemain jalan
+                // di peta (dulu nongkrong diem di sekitar titik (0,0,0), jauh dari area main).
+                skyGroup.position.set(camera.position.x, 0, camera.position.z);
+                const zenithColor = currentSkyColor.clone().lerp(new THREE.Color(0x000018), 0.55);
+                updateSkyDomeColors(currentSkyColor, zenithColor);
+
                 const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
-                sunLight.position.set(Math.cos(sunAngle) * 200, Math.sin(sunAngle) * 200, 50);
-                sunLight.lookAt(0, 0, 0);
+                const sunDist = 300;
+                const sunOffsetX = Math.cos(sunAngle) * sunDist, sunOffsetY = Math.sin(sunAngle) * sunDist;
+                sunLight.target.position.copy(camera.position);
+                sunLight.position.set(camera.position.x + sunOffsetX, camera.position.y + sunOffsetY, camera.position.z + 50);
                 const sunHeight = Math.sin(sunAngle);
                 sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
-                ambientLight.intensity = sunHeight > 0 ? (0.3 + sunHeight * 0.3) : 0.15;
-                
+                hemiLight.intensity = sunHeight > 0 ? (0.35 + sunHeight * 0.35) : 0.18;
+                hemiLight.color.copy(currentSkyColor).lerp(new THREE.Color(0xffffff), 0.3);
+
+                // Bola matahari & bulan yang keliatan, posisinya di kubah langit (lokal
+                // terhadap skyGroup yang udah ngikutin kamera), naik-turun ngikutin sunAngle.
+                sunSprite.position.set(sunOffsetX * 1.3, sunOffsetY * 1.3, 40);
+                sunSprite.material.opacity = THREE.MathUtils.clamp(sunHeight * 4, 0, 1);
+                sunSprite.visible = sunHeight > -0.15;
+                const moonAngle = sunAngle + Math.PI;
+                moon.position.set(Math.cos(moonAngle) * sunDist * 1.3, Math.sin(moonAngle) * sunDist * 1.3, 40);
+
                 clouds.forEach(cloud => {
                     cloud.position.x += cloud.userData.speed * delta;
                     if (cloud.position.x > 400) cloud.position.x = -400;
                 });
-                
+
+                // Shimmer air - satu material dibagi semua chunk jadi cukup diupdate sekali di sini
+                sharedWaterMat.opacity = 0.72 + Math.sin(time * 0.0015) * 0.05 + Math.sin(time * 0.0037) * 0.03;
+                sharedWaterMat.color.setHSL(0.57, 0.55, 0.32 + Math.sin(time * 0.0009) * 0.03);
+
                 const isNight = timeOfDay < 6 || timeOfDay > 19;
-                starsMat.opacity = isNight ? 0.8 : 0;
-                moon.visible = isNight;
+                // Transisi bintang dibikin ngelerp halus di sekitar batas malam/siang (dulu
+                // langsung "nyala/mati" mendadak persis di jam 06:00 dan 19:00).
+                const nightFade = THREE.MathUtils.clamp(1 - (Math.sin(sunAngle) + 0.15) / 0.3, 0, 1);
+                starsMat.opacity = nightFade * 0.8;
+                moon.visible = moon.position.y > -20;
 
                 const flicker = Math.sin(time * 0.05) * 0.2 + Math.random() * 0.2;
                 campfireGroup.children.forEach(campfire => {
                     campfire.children.forEach(child => {
                         if (child.isLight) child.intensity = 1.5 + flicker;
                         if (child.name === 'fireMesh') child.scale.y = 1 + flicker * 0.5;
+                        if (child.name === 'fireMeshInner') child.scale.y = 1 + Math.sin(time * 0.08 + 1.5) * 0.3;
                     });
+                    // Ngepul-in asap yang udah ditaruh di createCampfireMesh()
+                    const smoke = campfire.userData.smoke;
+                    if (smoke) {
+                        campfire.userData.smokeTimer -= delta;
+                        if (campfire.userData.smokeTimer <= 0) {
+                            campfire.userData.smokeTimer = 0.7 + Math.random() * 0.5;
+                            const dead = smoke.find(s => s.userData.life <= 0);
+                            if (dead) {
+                                dead.userData.life = 1;
+                                dead.userData.drift = (Math.random() - 0.5) * 0.15;
+                                dead.position.set((Math.random() - 0.5) * 0.2, 0.6, (Math.random() - 0.5) * 0.2);
+                                dead.scale.set(0.4, 0.4, 1);
+                            }
+                        }
+                        smoke.forEach(s => {
+                            if (s.userData.life > 0) {
+                                s.userData.life -= delta * 0.3;
+                                s.position.y += delta * 0.5;
+                                s.position.x += s.userData.drift * delta;
+                                const lifeT = THREE.MathUtils.clamp(1 - s.userData.life, 0, 1);
+                                s.material.opacity = Math.sin(Math.min(lifeT, 1) * Math.PI) * 0.35;
+                                s.scale.setScalar(0.4 + lifeT * 0.9);
+                            } else {
+                                s.material.opacity = 0;
+                            }
+                        });
+                    }
+                });
+
+                fireflyGroup.position.set(camera.position.x, 0, camera.position.z);
+                fireflies.forEach(f => {
+                    const off = f.userData.offset;
+                    f.position.set(
+                        off.x + Math.sin(time * 0.0007 * f.userData.speed + f.userData.phase) * 3,
+                        off.y + Math.sin(time * 0.002 + f.userData.phase) * 0.4,
+                        off.z + Math.cos(time * 0.0006 * f.userData.speed + f.userData.phase) * 3
+                    );
+                    f.material.opacity = nightFade * (0.4 + Math.sin(time * 0.005 + f.userData.phase) * 0.3);
                 });
 
                 const allTargets = [...drones];
@@ -2446,6 +2771,9 @@
                             const pz = camera.position.z + camDir.z * placeDist;
                             const py = getTerrainHeight(px, pz);
                             campfirePreview.position.set(px, py, pz);
+                            // Denyut pelan biar marker penempatan keliatan "hidup", nggak diem kaku
+                            const pulse = 1 + Math.sin(time * 0.006) * 0.06;
+                            campfirePreview.scale.set(pulse, 1, pulse);
 
                             let valid = py > -1; // nggak boleh di air
                             if (valid) {
@@ -2519,11 +2847,12 @@
                         } else {
                             chunks.forEach(chunk => {
                                 if (promptShown) return;
+                                const chunkPrefix = `${chunk.cx},${chunk.cz}`;
                                 if (chunk.treeMesh1) {
                                     const intersects1 = raycaster.intersectObject(chunk.treeMesh1);
                                     if (intersects1.length > 0 && intersects1[0].distance < 6) {
                                         const instanceId = intersects1[0].instanceId;
-                                        if (!choppedTrees.has(instanceId)) {
+                                        if (!choppedTrees.has(`${chunkPrefix}:t1:${instanceId}`)) {
                                             targetInstanceId = instanceId;
                                             promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
                                             promptUI.style.display = 'block';
@@ -2535,9 +2864,21 @@
                                     const intersects2 = raycaster.intersectObject(chunk.treeMesh2);
                                     if (intersects2.length > 0 && intersects2[0].distance < 6) {
                                         const instanceId = intersects2[0].instanceId;
-                                        if (!choppedTrees.has(instanceId)) {
+                                        if (!choppedTrees.has(`${chunkPrefix}:t2:${instanceId}`)) {
                                             targetInstanceId = instanceId;
                                             promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                                            promptUI.style.display = 'block';
+                                            promptShown = true;
+                                        }
+                                    }
+                                }
+                                if (!promptShown && chunk.rockMesh) {
+                                    const intersectsR = raycaster.intersectObject(chunk.rockMesh);
+                                    if (intersectsR.length > 0 && intersectsR[0].distance < 6) {
+                                        const instanceId = intersectsR[0].instanceId;
+                                        if (!minedRocks.has(`${chunkPrefix}:rock:${instanceId}`)) {
+                                            targetInstanceId = instanceId;
+                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tambang Batu';
                                             promptUI.style.display = 'block';
                                             promptShown = true;
                                         }
