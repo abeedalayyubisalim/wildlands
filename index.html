@@ -291,6 +291,7 @@
     <script type="module">
         import * as THREE from 'three';
         import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
         import { createClient } from '@supabase/supabase-js';
 
         // ============ SOUND MANAGER ============
@@ -697,6 +698,119 @@
             return c;
         }
 
+        // ============ POHON MULTI-SPESIES ============
+        // Dulu "pohon" cuma satu kerucut polos (ConeGeometry doang, tanpa batang) - sekarang
+        // tiap spesies digabung (batang + daun/dahan, masing-masing dikasih warna vertex
+        // sendiri) jadi SATU geometry lewat mergeGeometries, biar tetep bisa dipakein di
+        // InstancedMesh (satu instance = satu pohon utuh, gampang di-tebang kayak sebelumnya)
+        // tanpa nambah jumlah draw call. Geometry & material-nya dibikin SEKALI di sini
+        // (bukan tiap createChunk), terus dipakai bareng-bareng semua chunk - lihat
+        // TREE_SPECIES_GEO & sharedTreeMat di bawah, sama flag userData.sharedGeometry/
+        // sharedMaterial yang bikin removeChunk() nggak ikut nge-dispose mereka.
+        function paintGeometry(geo, color) {
+            const c = new THREE.Color(color);
+            const count = geo.attributes.position.count;
+            const colors = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            return geo;
+        }
+
+        function buildTreeSpecies() {
+            const species = {};
+
+            // --- Pinus/cemara: batang + 3 tingkat daun meruncing, khas hutan konifer ---
+            // Catatan: semua geometry bagian pohon di-toNonIndexed() dulu sebelum digabung -
+            // IcosahedronGeometry (dipakai buat daun oak/birch) itu non-indexed dari sononya,
+            // sedangkan Cylinder/Cone indexed, dan mergeGeometries() bakal gagal diam-diam
+            // (balikin null!) kalau ada yang indexed dicampur sama yang nggak. Nyeragamin
+            // semuanya jadi non-indexed dulu biar mergeGeometries()-nya pasti berhasil.
+            {
+                const trunk = new THREE.CylinderGeometry(0.22, 0.32, 1.4, 6).toNonIndexed();
+                trunk.translate(0, 0.7, 0);
+                paintGeometry(trunk, 0x5c4326);
+                const tier1 = new THREE.ConeGeometry(1.7, 2.4, 7).toNonIndexed();
+                tier1.translate(0, 2.4, 0);
+                paintGeometry(tier1, 0x1f3d17);
+                const tier2 = new THREE.ConeGeometry(1.25, 2.0, 7).toNonIndexed();
+                tier2.translate(0, 3.5, 0);
+                paintGeometry(tier2, 0x27481d);
+                const tier3 = new THREE.ConeGeometry(0.75, 1.6, 7).toNonIndexed();
+                tier3.translate(0, 4.45, 0);
+                paintGeometry(tier3, 0x2f5a24);
+                species.pine = mergeGeometries([trunk, tier1, tier2, tier3]);
+            }
+
+            // --- Oak/rimbun: batang gemuk pendek + gerombolan "bola" daun yang saling
+            // tumpuk, jadi siluetnya bulat rimbun (beda banget sama pinus yang meruncing) ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.3, 0.45, 1.7, 6).toNonIndexed();
+                trunk.translate(0, 0.85, 0);
+                paintGeometry(trunk, 0x6b4a2c);
+                const b1 = new THREE.IcosahedronGeometry(1.3, 0).toNonIndexed();
+                b1.translate(0, 2.5, 0);
+                paintGeometry(b1, 0x4d7c2b);
+                const b2 = new THREE.IcosahedronGeometry(1.0, 0).toNonIndexed();
+                b2.translate(0.9, 2.2, 0.4);
+                paintGeometry(b2, 0x5a8f34);
+                const b3 = new THREE.IcosahedronGeometry(1.0, 0).toNonIndexed();
+                b3.translate(-0.85, 2.15, -0.5);
+                paintGeometry(b3, 0x466b26);
+                const b4 = new THREE.IcosahedronGeometry(0.8, 0).toNonIndexed();
+                b4.translate(0.1, 3.0, -0.7);
+                paintGeometry(b4, 0x5a8f34);
+                species.oak = mergeGeometries([trunk, b1, b2, b3, b4]);
+            }
+
+            // --- Birch: batang tinggi ramping warna pucat + daun kehijau-kuningan,
+            // kontras sama dua spesies ijo tua di atas ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.14, 0.2, 2.6, 6).toNonIndexed();
+                trunk.translate(0, 1.3, 0);
+                paintGeometry(trunk, 0xdcd6c4);
+                const foliage = new THREE.IcosahedronGeometry(1.05, 0).toNonIndexed();
+                foliage.translate(0, 3.3, 0);
+                paintGeometry(foliage, 0x8ba33a);
+                const foliage2 = new THREE.IcosahedronGeometry(0.7, 0).toNonIndexed();
+                foliage2.translate(0.6, 2.9, 0.3);
+                paintGeometry(foliage2, 0x9db844);
+                species.birch = mergeGeometries([trunk, foliage, foliage2]);
+            }
+
+            // --- Pohon mati: cuma batang + beberapa dahan kering, tanpa daun -
+            // buat selingan visual (nggak semua pohon rimbun) & suasana area tandus/gunung ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.12, 0.3, 2.8, 6).toNonIndexed();
+                trunk.translate(0, 1.4, 0);
+                paintGeometry(trunk, 0x5b4a3a);
+                const branch1 = new THREE.CylinderGeometry(0.06, 0.1, 1.1, 5).toNonIndexed();
+                branch1.rotateZ(Math.PI / 3.2);
+                branch1.translate(0.5, 2.5, 0);
+                paintGeometry(branch1, 0x5b4a3a);
+                const branch2 = new THREE.CylinderGeometry(0.05, 0.09, 0.9, 5).toNonIndexed();
+                branch2.rotateZ(-Math.PI / 2.6);
+                branch2.translate(-0.4, 2.7, 0.2);
+                paintGeometry(branch2, 0x4a3c2e);
+                species.dead = mergeGeometries([trunk, branch1, branch2]);
+            }
+
+            return species;
+        }
+
+        const TREE_SPECIES_GEO = buildTreeSpecies();
+        // Satu material dipakai bareng semua spesies & semua chunk - warnanya dateng dari
+        // vertex color yang udah "dilukis" per-bagian geometry-nya (lihat paintGeometry()),
+        // bukan dari material.color.
+        const sharedTreeMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+        // Urutan & bobot kemunculan tiap spesies pas nyebar pohon di createChunk() - pinus
+        // paling umum (hutan konifer jadi dominan), pohon mati paling langka (cuma selingan).
+        const TREE_SPECIES_LIST = [
+            { tag: 'pine', geo: TREE_SPECIES_GEO.pine, weight: 0.48, cap: 34 },
+            { tag: 'oak', geo: TREE_SPECIES_GEO.oak, weight: 0.30, cap: 22 },
+            { tag: 'birch', geo: TREE_SPECIES_GEO.birch, weight: 0.14, cap: 14 },
+            { tag: 'dead', geo: TREE_SPECIES_GEO.dead, weight: 0.08, cap: 10 },
+        ];
+
         // ============ CHUNK MANAGEMENT ============
         function getChunkKey(cx, cz) { return `${cx},${cz}`; }
 
@@ -746,20 +860,23 @@
             water.position.y = -1.5;
             chunkGroup.add(water);
 
-            // POHON BERAGAM
-            const treeCount = 80;
-            const treeGeo1 = new THREE.ConeGeometry(1.5, 5, 6);
-            const treeGeo2 = new THREE.ConeGeometry(2, 6, 8);
-            const treeMat1 = new THREE.MeshStandardMaterial({ color: 0x1a3300, flatShading: true });
-            const treeMat2 = new THREE.MeshStandardMaterial({ color: 0x2d4a1e, flatShading: true });
-            const treeMesh1 = new THREE.InstancedMesh(treeGeo1, treeMat1, 40);
-            const treeMesh2 = new THREE.InstancedMesh(treeGeo2, treeMat2, 40);
-            treeMesh1.castShadow = true; treeMesh1.receiveShadow = true;
-            treeMesh2.castShadow = true; treeMesh2.receiveShadow = true;
-            
+            // POHON MULTI-SPESIES (pinus/oak/birch/pohon mati - lihat TREE_SPECIES_LIST di
+            // atas). Tiap spesies satu InstancedMesh sendiri, tapi geometry & material-nya
+            // dipakai bareng semua chunk (dibikin sekali di buildTreeSpecies()/sharedTreeMat),
+            // jadi di sini cuma nge-alloc InstancedMesh baru per chunk & isi instance-nya.
+            const treeCount = 90;
+            const treeMeshes = TREE_SPECIES_LIST.map(sp => {
+                const mesh = new THREE.InstancedMesh(sp.geo, sharedTreeMat, sp.cap);
+                mesh.castShadow = true; mesh.receiveShadow = true;
+                mesh.userData.sharedGeometry = true;
+                mesh.userData.sharedMaterial = true;
+                mesh.userData.treeTag = sp.tag;
+                mesh.count = 0;
+                return { tag: sp.tag, mesh, cap: sp.cap, index: 0 };
+            });
+
             const dummy = new THREE.Object3D();
-            let treeIndex1 = 0, treeIndex2 = 0;
-            
+
             for (let i = 0; i < treeCount; i++) {
                 const x = (Math.random() - 0.5) * CHUNK_SIZE;
                 const z = (Math.random() - 0.5) * CHUNK_SIZE;
@@ -767,21 +884,27 @@
                 const worldZ = z + cz * CHUNK_SIZE;
                 const y = getTerrainHeight(worldX, worldZ);
                 if (y > -1 && y < 4) {
-                    dummy.position.set(x, y + 2.5, z);
-                    dummy.scale.setScalar(0.8 + Math.random() * 0.6);
-                    dummy.rotation.y = Math.random() * Math.PI;
-                    dummy.updateMatrix();
-                    if (i % 2 === 0 && treeIndex1 < 40) {
-                        treeMesh1.setMatrixAt(treeIndex1++, dummy.matrix);
-                    } else if (treeIndex2 < 40) {
-                        treeMesh2.setMatrixAt(treeIndex2++, dummy.matrix);
+                    // Pilih spesies secara acak berbobot (lihat TREE_SPECIES_LIST.weight),
+                    // lalu cari mesh spesies itu yang masih ada slot kosongnya.
+                    let roll = Math.random();
+                    let chosen = treeMeshes[0];
+                    for (const tm of treeMeshes) {
+                        const sp = TREE_SPECIES_LIST.find(s => s.tag === tm.tag);
+                        if (roll < sp.weight) { chosen = tm; break; }
+                        roll -= sp.weight;
                     }
+                    if (chosen.index >= chosen.cap) continue;
+                    dummy.position.set(x, y, z);
+                    dummy.scale.setScalar(0.8 + Math.random() * 0.6);
+                    dummy.rotation.y = Math.random() * Math.PI * 2;
+                    dummy.updateMatrix();
+                    chosen.mesh.setMatrixAt(chosen.index++, dummy.matrix);
                 }
             }
-            treeMesh1.count = treeIndex1;
-            treeMesh2.count = treeIndex2;
-            chunkGroup.add(treeMesh1);
-            chunkGroup.add(treeMesh2);
+            treeMeshes.forEach(tm => {
+                tm.mesh.count = tm.index;
+                chunkGroup.add(tm.mesh);
+            });
 
             // SEMAK-SEMAK (Bushes)
             const bushCount = 30;
@@ -834,7 +957,7 @@
             chunkGroup.add(rockMesh);
 
             scene.add(chunkGroup);
-            chunks.set(key, { group: chunkGroup, terrain, water, treeMesh1, treeMesh2, bushMesh, rockMesh, cx, cz });
+            chunks.set(key, { group: chunkGroup, terrain, water, treeMeshes, bushMesh, rockMesh, cx, cz });
         }
 
         function removeChunk(cx, cz) {
@@ -843,7 +966,11 @@
             if (chunk) {
                 scene.remove(chunk.group);
                 chunk.group.traverse((child) => {
-                    if (child.geometry) child.geometry.dispose();
+                    // Geometry pohon (TREE_SPECIES_GEO) ditandain "sharedGeometry" karena
+                    // dibikin sekali di module scope dan dipakai instance-instance pohon di
+                    // SEMUA chunk - jangan di-dispose di sini, chunk lain yang masih kemuat
+                    // bakal ikut ilang pohonnya kalau geometry-nya kebuang.
+                    if (child.geometry && !(child.userData && child.userData.sharedGeometry)) child.geometry.dispose();
                     // Material yang ditandain "sharedMaterial" (misalnya sharedWaterMat) dipakai
                     // bareng-bareng semua chunk, jadi JANGAN di-dispose di sini - chunk lain yang
                     // masih kemuat bakal ikut rusak renderingnya kalau materialnya kebuang.
@@ -2478,25 +2605,17 @@
                                 chunks.forEach(chunk => {
                                     if (treeFound) return;
                                     const chunkPrefix = `${chunk.cx},${chunk.cz}`;
-                                    if (chunk.treeMesh1) {
-                                        const intersects1 = raycaster.intersectObject(chunk.treeMesh1);
-                                        if (intersects1.length > 0 && intersects1[0].distance < 6) {
-                                            const instanceId = intersects1[0].instanceId;
-                                            const key = `${chunkPrefix}:t1:${instanceId}`;
-                                            if (!choppedTrees.has(key)) {
-                                                chopTree(key, instanceId, chunk.treeMesh1);
-                                                treeFound = true;
-                                            }
-                                        }
-                                    }
-                                    if (!treeFound && chunk.treeMesh2) {
-                                        const intersects2 = raycaster.intersectObject(chunk.treeMesh2);
-                                        if (intersects2.length > 0 && intersects2[0].distance < 6) {
-                                            const instanceId = intersects2[0].instanceId;
-                                            const key = `${chunkPrefix}:t2:${instanceId}`;
-                                            if (!choppedTrees.has(key)) {
-                                                chopTree(key, instanceId, chunk.treeMesh2);
-                                                treeFound = true;
+                                    if (chunk.treeMeshes) {
+                                        for (const tm of chunk.treeMeshes) {
+                                            if (treeFound) break;
+                                            const intersectsT = raycaster.intersectObject(tm.mesh);
+                                            if (intersectsT.length > 0 && intersectsT[0].distance < 6) {
+                                                const instanceId = intersectsT[0].instanceId;
+                                                const key = `${chunkPrefix}:${tm.tag}:${instanceId}`;
+                                                if (!choppedTrees.has(key)) {
+                                                    chopTree(key, instanceId, tm.mesh);
+                                                    treeFound = true;
+                                                }
                                             }
                                         }
                                     }
@@ -3039,27 +3158,18 @@
                             chunks.forEach(chunk => {
                                 if (promptShown) return;
                                 const chunkPrefix = `${chunk.cx},${chunk.cz}`;
-                                if (chunk.treeMesh1) {
-                                    const intersects1 = raycaster.intersectObject(chunk.treeMesh1);
-                                    if (intersects1.length > 0 && intersects1[0].distance < 6) {
-                                        const instanceId = intersects1[0].instanceId;
-                                        if (!choppedTrees.has(`${chunkPrefix}:t1:${instanceId}`)) {
-                                            targetInstanceId = instanceId;
-                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
-                                            promptUI.style.display = 'block';
-                                            promptShown = true;
-                                        }
-                                    }
-                                }
-                                if (!promptShown && chunk.treeMesh2) {
-                                    const intersects2 = raycaster.intersectObject(chunk.treeMesh2);
-                                    if (intersects2.length > 0 && intersects2[0].distance < 6) {
-                                        const instanceId = intersects2[0].instanceId;
-                                        if (!choppedTrees.has(`${chunkPrefix}:t2:${instanceId}`)) {
-                                            targetInstanceId = instanceId;
-                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
-                                            promptUI.style.display = 'block';
-                                            promptShown = true;
+                                if (chunk.treeMeshes) {
+                                    for (const tm of chunk.treeMeshes) {
+                                        if (promptShown) break;
+                                        const intersectsT = raycaster.intersectObject(tm.mesh);
+                                        if (intersectsT.length > 0 && intersectsT[0].distance < 6) {
+                                            const instanceId = intersectsT[0].instanceId;
+                                            if (!choppedTrees.has(`${chunkPrefix}:${tm.tag}:${instanceId}`)) {
+                                                targetInstanceId = instanceId;
+                                                promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                                                promptUI.style.display = 'block';
+                                                promptShown = true;
+                                            }
                                         }
                                     }
                                 }
