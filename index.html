@@ -1260,6 +1260,7 @@
         class BossDrone {
             constructor(pos) {
                 this.group = new THREE.Group();
+                this.type = 'boss';
                 this.state = 'PATROL';
                 this.maxHp = 500;
                 this.hp = this.maxHp;
@@ -1787,7 +1788,13 @@
             checkHit(targets) {
                 if (!this.alive) return null;
                 for (const target of targets) {
-                    if (target.destroyed || !target.alive) continue;
+                    // BUG UTAMA: drone/boss nggak punya properti "alive" sama sekali (cuma
+                    // Animal yang punya), jadi "!target.alive" itu SELALU true buat mereka
+                    // (undefined dibalik jadi true) - artinya panah/batu/panah-api nggak
+                    // PERNAH bisa kena drone atau boss sama sekali, cuma bisa kena hewan.
+                    // Sekarang cuma di-skip kalau emang eksplisit destroyed/alive===false.
+                    if (target.destroyed) continue;
+                    if (target.alive === false) continue;
                     const dist = this.mesh.position.distanceTo(target.group.position);
                     const hitDist = target.type === 'boss' ? 3 : (target.type === 'deer' || target.type === 'rabbit' ? 1.5 : 1.8);
                     if (dist < hitDist) return target;
@@ -1831,6 +1838,7 @@
         class PatrolDrone {
             constructor(spawnPos, patrolRadius = 40) {
                 this.group = new THREE.Group();
+                this.type = 'drone';
                 this.state = 'PATROL';
                 this.patrolRadius = patrolRadius;
                 this.patrolAngle = Math.random() * Math.PI * 2;
