@@ -1462,6 +1462,13 @@
                 showNotification("❌ Posisi tidak valid!", true);
                 return;
             }
+            if ((inventory.wood || 0) < 5) {
+                showNotification("❌ Butuh 5 kayu!", true);
+                cancelPlacement();
+                return;
+            }
+            inventory.wood -= 5;
+            updateUI();
             const pos = campfirePreview.position.clone();
             const campfire = createCampfireMesh(false);
             campfire.position.copy(pos);
@@ -2102,7 +2109,7 @@
                 }
                 
                 if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
-                    if ((inventory.wood || 0) >= 5) { inventory.wood -= 5; updateUI(); startPlacementMode(); SoundManager.play('craft'); }
+                    if ((inventory.wood || 0) >= 5) { startPlacementMode(); SoundManager.play('craft'); }
                     else { showNotification(`Butuh 5 kayu!`, true); }
                 }
                 if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) placeCampfire();
@@ -2422,6 +2429,34 @@
                         if (time - lastFootstepTime > stepInterval) { SoundManager.play('footstep'); lastFootstepTime = time; }
                     }
 
+                    if (isPlacingCampfire) {
+                        // ===== MODE PENEMPATAN API UNGGUN =====
+                        // Preview harus ngikutin arah pandang pemain tiap frame, dan validitasnya
+                        // (boleh ditaruh atau nggak) dihitung ulang di sini juga - sebelumnya dua
+                        // hal ini nggak pernah dilakukan sama sekali, jadi previewnya diem di
+                        // titik (0,0,0) (jauh dari pemain, makanya keliatan nggak "muncul") dan
+                        // placementValid selamanya false, jadi tombol F selalu gagal.
+                        if (campfirePreview) {
+                            const camDir = new THREE.Vector3();
+                            camera.getWorldDirection(camDir);
+                            camDir.y = 0;
+                            if (camDir.lengthSq() < 0.0001) camDir.set(0, 0, -1); else camDir.normalize();
+                            const placeDist = 4;
+                            const px = camera.position.x + camDir.x * placeDist;
+                            const pz = camera.position.z + camDir.z * placeDist;
+                            const py = getTerrainHeight(px, pz);
+                            campfirePreview.position.set(px, py, pz);
+
+                            let valid = py > -1; // nggak boleh di air
+                            if (valid) {
+                                for (const cf of campfires) {
+                                    if (Math.hypot(cf.x - px, cf.z - pz) < 3) { valid = false; break; }
+                                }
+                            }
+                            placementValid = valid;
+                            setPreviewColor(valid);
+                        }
+                    } else {
                     const crosshair = document.getElementById('crosshair');
                     let targeting = false;
                     raycaster.setFromCamera(center, camera);
@@ -2511,8 +2546,9 @@
                             });
                         }
                     }
-                    
+
                     if (!promptShown) promptUI.style.display = 'none';
+                    }
 
                     document.getElementById('time').innerText = formatTime(timeOfDay);
                     document.getElementById('period').innerText = getTimePeriod(timeOfDay);
@@ -2521,7 +2557,12 @@
 
                 prevTime = time;
                 renderer.render(scene, camera);
-            } catch(e) { requestAnimationFrame(animate); }
+            } catch(e) {
+                // requestAnimationFrame(animate) di atas udah selalu kepanggil di awal try,
+                // jadi loop-nya nggak boleh dijadwalin lagi di sini - kalau dobel, tiap error
+                // bakal ngelipatgandain jumlah frame yang jalan tiap detik dan bikin game freeze.
+                console.error('animate loop error:', e);
+            }
         }
 
         window.addEventListener('resize', () => {
