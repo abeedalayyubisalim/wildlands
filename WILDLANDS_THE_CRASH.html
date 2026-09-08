@@ -1,0 +1,3329 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WILDLANDS: THE CRASH</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Courier New', Courier, monospace; user-select: none; }
+        /* ===== Gaya HUD "kaca" bersama - dulu semua panel cuma kotak item transparan flat
+           dengan border 1px polos. Sekarang dikasih gradasi, blur kaca, sudut lebih membulat,
+           dan sedikit glow di border biar kerasa lebih modern & "hidup". ===== */
+        #ui-layer, #quest-hud, #weapon-hud, #campfire-bonus, #kill-counter, #boss-hud,
+        #pause-menu, #npc-dialog, #minimap-container, #autosave-indicator, #chunk-info {
+            backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        }
+        #ui-layer {
+            position: absolute; top: 10px; left: 10px; color: #00ff88;
+            background: linear-gradient(160deg, rgba(10,20,15,0.82), rgba(5,10,8,0.72));
+            padding: 14px 16px; border-radius: 10px; border: 1px solid rgba(0,255,136,0.35);
+            box-shadow: 0 0 18px rgba(0,255,136,0.08), inset 0 1px 0 rgba(255,255,255,0.04);
+            pointer-events: none; min-width: 260px; font-size: 13px;
+        }
+        #ui-layer h3 { color: #baffe0; letter-spacing: 1px; text-shadow: 0 0 8px rgba(0,255,136,0.5); }
+        .bar-container { width: 100%; height: 10px; background: rgba(0,0,0,0.5); border: 1px solid #444; border-radius: 5px; margin-top: 3px; margin-bottom: 6px; overflow: hidden; box-shadow: inset 0 1px 3px rgba(0,0,0,0.6); }
+        #health-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff6666); transition: width 0.3s; }
+        #stamina-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #00aaff, #66ddff); transition: width 0.2s; }
+        #hunger-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff8800, #ffaa44); transition: width 0.3s; }
+        #thirst-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #0088ff, #44aaff); transition: width 0.3s; }
+
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 12px; height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.8); border-radius: 50%;
+            transform: translate(-50%, -50%); pointer-events: none;
+            transition: border-color 0.2s, width 0.2s, height 0.2s;
+        }
+        #crosshair.target { border-color: #ff4444; width: 18px; height: 18px; }
+        
+        #interaction-prompt {
+            position: absolute; top: 55%; left: 50%; transform: translateX(-50%);
+            color: #ffff00; font-weight: bold; font-size: 18px; text-shadow: 1px 1px 2px black;
+            display: none; pointer-events: none; text-align: center;
+        }
+        #blocker {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at 50% 40%, rgba(10,40,25,0.92), rgba(0,0,0,0.95));
+            color: white; display: flex;
+            flex-direction: column; justify-content: center; align-items: center;
+            z-index: 999; cursor: pointer; text-align: center;
+        }
+        #blocker h1 { text-shadow: 0 0 20px rgba(0,255,136,0.5); letter-spacing: 2px; }
+        #notification {
+            position: absolute; bottom: 20px; right: 20px;
+            background: linear-gradient(135deg, rgba(0,40,20,0.85), rgba(0,15,10,0.85)); color: #00ff88;
+            padding: 10px 20px; border-radius: 8px; border: 1px solid #00ff88;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 0 14px rgba(0,255,136,0.15);
+            opacity: 0; transition: opacity 0.4s, transform 0.4s; pointer-events: none;
+            font-weight: bold; backdrop-filter: blur(4px);
+        }
+        #controls-help {
+            position: absolute; bottom: 20px; left: 20px;
+            color: #99aab5; font-size: 12px;
+            background: linear-gradient(160deg, rgba(10,14,20,0.75), rgba(5,7,10,0.7));
+            padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.08);
+            pointer-events: none; line-height: 1.5;
+        }
+        #placement-status {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            font-size: 14px; font-weight: bold; text-shadow: 1px 1px 2px black;
+            display: none; pointer-events: none;
+        }
+        #damage-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(transparent 30%, rgba(255,0,0,0.5));
+            opacity: 0; pointer-events: none; transition: opacity 0.3s;
+        }
+        #alert-indicator {
+            position: absolute; top: 50%; right: 20px; transform: translateY(-50%);
+            color: #ff0000; font-size: 24px; font-weight: bold;
+            text-shadow: 0 0 10px red; display: none; animation: pulse 0.5s infinite;
+        }
+        #sprint-indicator {
+            position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+            color: #00ffff; font-size: 14px; font-weight: bold; display: none;
+            background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 3px;
+        }
+        #campfire-bonus {
+            position: absolute; bottom: 180px; right: 20px;
+            color: #ffcc66; font-size: 13px; font-weight: bold; display: none;
+            background: linear-gradient(160deg, rgba(50,25,0,0.8), rgba(20,10,0,0.8)); padding: 8px 12px; border-radius: 8px;
+            border: 1px solid #ffaa00; box-shadow: 0 0 14px rgba(255,170,0,0.2);
+        }
+        #weapon-hud {
+            position: absolute; bottom: 180px; left: 20px;
+            background: linear-gradient(160deg, rgba(15,17,22,0.82), rgba(6,7,10,0.82)); color: #fff;
+            padding: 10px 15px; border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.12); pointer-events: none; min-width: 200px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+        }
+        #weapon-hud .weapon-name { color: #ffaa00; font-weight: bold; font-size: 14px; }
+        #weapon-hud .ammo { color: #00ff88; font-size: 18px; text-shadow: 0 0 8px rgba(0,255,136,0.4); }
+        #weapon-hud .hint { color: #888; font-size: 11px; margin-top: 5px; }
+
+        #quest-hud {
+            position: absolute; top: 10px; right: 10px;
+            background: linear-gradient(160deg, rgba(35,30,0,0.82), rgba(15,12,0,0.78)); color: #ffe066;
+            padding: 12px; border-radius: 10px; border: 1px solid #ffcc00;
+            box-shadow: 0 0 16px rgba(255,204,0,0.1);
+            min-width: 220px; pointer-events: none;
+        }
+
+        #minimap-container {
+            position: absolute; bottom: 20px; right: 20px;
+            background: linear-gradient(160deg, rgba(10,14,10,0.82), rgba(4,6,4,0.82));
+            border: 2px solid rgba(0,255,136,0.35); box-shadow: 0 0 16px rgba(0,0,0,0.4);
+            border-radius: 8px; padding: 6px; pointer-events: none;
+        }
+        #minimap { display: block; background: #14260a; border-radius: 4px; }
+        #minimap-compass { text-align: center; color: #99ffcc; font-size: 10px; margin-top: 2px; letter-spacing: 1px; }
+
+        #kill-counter {
+            position: absolute; top: 50%; left: 20px; transform: translateY(-50%);
+            color: #ff8888; font-size: 16px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(40,0,0,0.8), rgba(15,0,0,0.8)); padding: 8px 12px; border-radius: 8px;
+            border: 1px solid #ff4444; box-shadow: 0 0 14px rgba(255,68,68,0.15); display: none;
+        }
+        #autosave-indicator {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #00ff88; font-size: 14px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(0,35,20,0.85), rgba(0,12,8,0.85)); padding: 8px 16px; border-radius: 8px;
+            border: 1px solid #00ff88; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        #chunk-info {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            color: #7ff2ff; font-size: 12px; font-weight: bold;
+            background: linear-gradient(160deg, rgba(0,30,35,0.82), rgba(0,10,12,0.82)); padding: 5px 10px; border-radius: 6px;
+            border: 1px solid #00ffff; opacity: 0; pointer-events: none;
+            transition: opacity 0.3s;
+        }
+        #pause-menu {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: linear-gradient(160deg, rgba(10,20,15,0.95), rgba(4,8,6,0.95)); color: white; padding: 30px;
+            border-radius: 14px; border: 2px solid #00ff88; display: none;
+            box-shadow: 0 0 40px rgba(0,255,136,0.15);
+            text-align: center; min-width: 300px;
+        }
+        #pause-menu h2 { color: #00ff88; margin-top: 0; text-shadow: 0 0 10px rgba(0,255,136,0.5); }
+        #pause-menu button {
+            background: linear-gradient(160deg, #00ffaa, #00cc77); color: #002616; border: none;
+            padding: 10px 20px; margin: 5px; cursor: pointer;
+            font-family: 'Courier New', monospace; font-weight: bold;
+            border-radius: 6px; box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+        }
+        #pause-menu button:hover { background: linear-gradient(160deg, #33ffbb, #00e088); }
+
+        #npc-dialog {
+            position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+            background: linear-gradient(160deg, rgba(30,28,0,0.95), rgba(12,11,0,0.95)); color: white; padding: 20px;
+            border-radius: 14px; border: 2px solid #ffe066; display: none;
+            box-shadow: 0 0 40px rgba(255,224,102,0.12);
+            min-width: 400px; max-width: 600px; text-align: center;
+        }
+        #npc-dialog .npc-name { color: #ffe066; font-weight: bold; font-size: 16px; margin-bottom: 10px; text-shadow: 0 0 8px rgba(255,224,102,0.4); }
+        #npc-dialog .npc-text { font-size: 14px; line-height: 1.5; margin-bottom: 15px; }
+        #npc-dialog button {
+            background: linear-gradient(160deg, #ffe066, #ffc933); color: #2a2100; border: none;
+            padding: 8px 16px; cursor: pointer; font-family: 'Courier New', monospace;
+            font-weight: bold; border-radius: 6px; margin: 0 5px; box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+        }
+        #npc-dialog button:hover { background: linear-gradient(160deg, #fff0a3, #ffd966); }
+
+        #boss-hud {
+            position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+            background: linear-gradient(160deg, rgba(35,0,0,0.88), rgba(15,0,0,0.88)); color: #ff6666; padding: 10px 20px;
+            border-radius: 8px; border: 2px solid #ff0000; display: none;
+            box-shadow: 0 0 24px rgba(255,0,0,0.25);
+            min-width: 400px; text-align: center;
+        }
+        #boss-hud .boss-name { font-weight: bold; font-size: 16px; margin-bottom: 5px; text-shadow: 0 0 8px rgba(255,0,0,0.6); }
+        #boss-hud .boss-hp-bar-container { width: 100%; height: 15px; background: #330000; border: 1px solid #ff0000; border-radius: 4px; overflow: hidden; }
+        #boss-hud .boss-hp-bar { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff4444); transition: width 0.3s; }
+        
+        .drone-hp-bar {
+            position: absolute; width: 60px; height: 6px;
+            background: #330000; border: 1px solid #ff0000;
+            pointer-events: none; display: none;
+        }
+        .drone-hp-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff0000, #ff6666); transition: width 0.2s; }
+        .drone-burn-indicator {
+            position: absolute; width: 60px; height: 4px;
+            background: #331100; border: 1px solid #ff6600;
+            pointer-events: none; display: none; margin-top: 2px;
+        }
+        .drone-burn-fill { width: 100%; height: 100%; background: linear-gradient(90deg, #ff6600, #ffaa00); transition: width 0.2s; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        #story-overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:1000; background:rgba(0,0,0,.72); backdrop-filter:blur(5px); }
+        #story-card { width:min(720px,88vw); padding:28px 32px; border:1px solid rgba(255,209,102,.55); border-radius:16px; background:linear-gradient(145deg,rgba(10,15,12,.96),rgba(25,20,10,.94)); box-shadow:0 0 45px rgba(255,180,40,.15); color:#eee; }
+        #story-card h1 { margin:0 0 8px; color:#ffd166; font-size:28px; letter-spacing:2px; }
+        #story-card h2 { margin:0 0 18px; color:#9be7ff; font-size:16px; }
+        #story-text { line-height:1.7; color:#ddd; white-space:pre-line; }
+        #story-close { margin-top:22px; padding:10px 20px; border:1px solid #ffd166; border-radius:8px; background:#2a2415; color:#ffd166; cursor:pointer; }
+        #story-objective { margin-top:15px; padding:10px 12px; border-left:3px solid #ffd166; background:rgba(255,209,102,.08); }
+    </style>
+</head>
+<body>
+    <div id="story-overlay"><div id="story-card"><h1 id="story-kicker">WILDLANDS: THE CRASH</h1><h2 id="story-title">THE CRASH</h2><div id="story-text"></div><div id="story-objective"></div><button id="story-close">LANJUTKAN [ENTER]</button></div></div>
+
+    <div id="ui-layer">
+        <h3 style="margin: 0 0 8px 0;">WILDLANDS: THE CRASH</h3>
+        <p style="margin: 2px 0;">❤️ HP: <span id="health-text">100</span></p>
+        <div class="bar-container"><div id="health-bar"></div></div>
+        <p style="margin: 2px 0;">⚡ Stamina: <span id="stamina-text">100</span></p>
+        <div class="bar-container"><div id="stamina-bar"></div></div>
+        <p style="margin: 2px 0;"> Lapar: <span id="hunger-text">100</span></p>
+        <div class="bar-container"><div id="hunger-bar"></div></div>
+        <p style="margin: 2px 0;">💧 Haus: <span id="thirst-text">100</span></p>
+        <div class="bar-container"><div id="thirst-bar"></div></div>
+        <p style="margin: 2px 0;">🪵 <span id="inv-wood">0</span> | 🏹 <span id="inv-arrows">0</span> | 🔥 <span id="inv-fire">0</span> | 🪨 <span id="inv-stones">0</span> | 🥩 <span id="inv-meat">0</span></p>
+        <p style="margin: 2px 0;">🕒 <span id="time">06:00</span> | <span id="period">Pagi</span></p>
+        <p style="margin: 2px 0; color: #ff4444;">💀 Drone: <span id="kill-count">0</span> | 🦌 Hewan: <span id="animal-count">0</span></p><p style="margin: 2px 0; color:#ffd166;">📍 LEVEL <span id="story-level">1</span> / 20</p>
+    </div>
+    
+    <div id="quest-hud">
+        <div style="font-weight: bold;">📜 MISI: <span id="quest-title">Crash Site</span></div>
+        <div style="font-size: 12px; color: #ccc;" id="quest-desc">Periksa bangkai pesawat dan cari perlengkapan survival.</div>
+        <div style="font-weight: bold; font-size: 16px;" id="quest-progress">0 / 1</div>
+    </div>
+
+    <div id="crosshair"></div>
+    <div id="interaction-prompt">[E] Interaksi</div>
+    <div id="placement-status">✓ VALID</div>
+    <div id="notification">Notif</div>
+    <div id="damage-overlay"></div>
+    <div id="alert-indicator">⚠️ TERDETEKSI!</div>
+    <div id="sprint-indicator">🏃 SPRINT</div>
+    <div id="campfire-bonus">🔥 Istirahat<br>Status Pulih</div>
+    <div id="kill-counter">💀 KILL: <span id="kill-display">0</span></div>
+    <div id="autosave-indicator">💾 Menyimpan...</div>
+    <div id="chunk-info">Chunk: 0, 0 | Loaded: 0</div>
+    
+    <div id="weapon-hud">
+        <div class="weapon-name" id="weapon-name">👊 Tangan Kosong</div>
+        <div class="ammo" id="weapon-ammo">-</div>
+        <div class="hint">[1] Batu [2] Panah [3] Panah Api<br>[G] Craft Panah Api | Klik Kiri: Tembak</div>
+    </div>
+    
+    <div id="minimap-container">
+        <canvas id="minimap" width="150" height="150"></canvas>
+        <div id="minimap-compass">N ▲ PETA</div>
+    </div>
+    
+    <div id="controls-help">
+        <strong>Kontrol:</strong><br>
+        WASD: Gerak | SPACE: Lompat | SHIFT: Sprint<br>
+        E: Interaksi | C: Craft Api | F: Letakkan<br>
+        T: Craft Panah | G: Craft Panah Api<br>
+        1: Batu | 2: Panah | 3: Panah Api<br>
+        H: Makan Daging | Q: Save | R: Load | ESC: Pause
+    </div>
+
+    <div id="npc-dialog">
+        <div class="npc-name" id="npc-name">NPC</div>
+        <div class="npc-text" id="npc-text">Halo!</div>
+        <button id="npc-btn-1">Opsi 1</button>
+        <button id="npc-btn-2">Opsi 2</button>
+    </div>
+
+    <div id="boss-hud">
+        <div class="boss-name"> DRONE INDUK - <span id="boss-hp-text">500/500</span></div>
+        <div class="boss-hp-bar-container"><div class="boss-hp-bar" id="boss-hp-bar"></div></div>
+    </div>
+
+    <div id="blocker">
+        <h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1>
+        <p style="font-size: 16px;">🎮 Survival 3D dengan Wildlife, Village & Boss</p>
+        <p>🏔️ Jelajahi gunung, hutan, dan desa |  Buru hewan untuk daging</p>
+        <p>👹 Kalahkan <span style="color:#ff4444">Drone Induk</span> untuk menyelesaikan misi!</p>
+        <p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p>
+        <p id="load-status" style="color: #888; margin-top: 10px;">Memuat...</p>
+    </div>
+
+    <div id="pause-menu">
+        <h2>⏸️ PAUSED</h2>
+        <p>Game dijeda</p>
+        <button onclick="resumeGame()">▶️ Lanjutkan</button>
+        <button onclick="saveAndResume()">💾 Save & Lanjut</button>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "@supabase/supabase-js": "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
+        import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+        import { createClient } from '@supabase/supabase-js';
+
+        // ============ SOUND MANAGER ============
+        const SoundManager = {
+            ctx: null, enabled: true,
+            init() {
+                try {
+                    if (!this.ctx) {
+                        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                        if (!AudioCtx) { this.enabled = false; return; }
+                        this.ctx = new AudioCtx();
+                    }
+                    if (this.ctx.state === 'suspended') this.ctx.resume();
+                } catch (e) { this.enabled = false; }
+            },
+            play(type) {
+                if (!this.enabled || !this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.connect(gain); gain.connect(this.ctx.destination);
+                    
+                    if (type === 'footstep') {
+                        osc.type = 'triangle'; osc.frequency.setValueAtTime(100 + Math.random() * 50, now);
+                        gain.gain.setValueAtTime(0.1, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                        osc.start(now); osc.stop(now + 0.05);
+                    } else if (type === 'chop') {
+                        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(150, now);
+                        osc.frequency.exponentialRampToValueAtTime(40, now + 0.1);
+                        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'shoot_arrow') {
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(800, now);
+                        osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+                        gain.gain.setValueAtTime(0.2, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'shoot_fire') {
+                        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now);
+                        osc.frequency.exponentialRampToValueAtTime(800, now + 0.2);
+                        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
+                        osc.start(now); osc.stop(now + 0.25);
+                    } else if (type === 'shoot_stone') {
+                        osc.type = 'triangle'; osc.frequency.setValueAtTime(300, now);
+                        osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+                        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'hit') {
+                        osc.type = 'square'; osc.frequency.setValueAtTime(100, now);
+                        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+                        osc.start(now); osc.stop(now + 0.2);
+                    } else if (type === 'burn') {
+                        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(80 + Math.random() * 40, now);
+                        gain.gain.setValueAtTime(0.15, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'eat') {
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(400, now);
+                        osc.frequency.linearRampToValueAtTime(600, now + 0.1);
+                        gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.1);
+                        osc.start(now); osc.stop(now + 0.1);
+                    } else if (type === 'drink') {
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(300, now);
+                        osc.frequency.linearRampToValueAtTime(500, now + 0.15);
+                        gain.gain.setValueAtTime(0.2, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'craft') {
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(600, now);
+                        osc.frequency.linearRampToValueAtTime(800, now + 0.15);
+                        gain.gain.setValueAtTime(0.15, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'save') {
+                        osc.type = 'sine'; osc.frequency.setValueAtTime(500, now);
+                        osc.frequency.linearRampToValueAtTime(700, now + 0.1);
+                        gain.gain.setValueAtTime(0.1, now); gain.gain.linearRampToValueAtTime(0.01, now + 0.15);
+                        osc.start(now); osc.stop(now + 0.15);
+                    } else if (type === 'animal_death') {
+                        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(200, now);
+                        osc.frequency.exponentialRampToValueAtTime(50, now + 0.3);
+                        gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                        osc.start(now); osc.stop(now + 0.3);
+                    } else if (type === 'boss_roar') {
+                        osc.type = 'sawtooth'; osc.frequency.setValueAtTime(80, now);
+                        osc.frequency.linearRampToValueAtTime(200, now + 0.5);
+                        gain.gain.setValueAtTime(0.5, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 1);
+                        osc.start(now); osc.stop(now + 1);
+                    }
+                } catch (e) {}
+            }
+        };
+
+        // ============ SUPABASE ============
+        const supabaseUrl = 'https://mlsibwihfzehqcdawrdh.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sc2lid2loZnplaHFjZGF3cmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgxMTcwNTEsImV4cCI6MjEwMzY5MzA1MX0.faKWNZqTLE6nEH6nPw0L4uFepTy6ZvqrZDy2BaHcWxs';
+        let supabase;
+        try { supabase = createClient(supabaseUrl, supabaseKey); } catch (e) {}
+
+        let playerId = localStorage.getItem('wildlands_player_id');
+        if (!playerId) {
+            playerId = 'player_' + Math.random().toString(36).substring(2, 11);
+            localStorage.setItem('wildlands_player_id', playerId);
+        }
+
+        // ============ STATE GAME ============
+        let inventory = { wood: 0, arrows: 0, stones: 0, fire_arrows: 0, meat: 0 };
+        let choppedTrees = new Set();
+        let minedRocks = new Set();
+        let campfires = [];
+        let isPlacingCampfire = false;
+        let placementValid = false;
+        
+        let playerHealth = 100, MAX_HEALTH = 100;
+        let playerStamina = 100, MAX_STAMINA = 100;
+        let playerHunger = 100, MAX_HUNGER = 100;
+        let playerThirst = 100, MAX_THIRST = 100;
+        
+        const STAMINA_DRAIN_RATE = 15;
+        const STAMINA_REGEN_RATE = 5;
+        const STAMINA_REGEN_CAMPFIRE = 20;
+        const HP_REGEN_CAMPFIRE = 5;
+        const HUNGER_DECAY = 0.3;
+        const THIRST_DECAY = 0.4;
+        const CAMPFIRE_RADIUS = 8;
+        
+        let isSprinting = false;
+        let isNearCampfire = false;
+        let isNearCave = false;
+        let currentWeapon = 'none';
+        let starvationTimer = 0;
+        let isGameOver = false;
+        let isPaused = false;
+        let totalKills = 0;
+        let totalAnimals = 0;
+        let bossDefeated = false;
+        let storyLevel = 1;
+        let storyFlags = {};
+        let storyOverlayOpen = false;
+        let quest = {
+            active: true, title: "Crash Site", description: "Periksa bangkai pesawat dan cari perlengkapan survival.",
+            type: "story", target: 1, current: 0, completed: false
+        };
+
+        const STORY_MISSIONS = [
+          ["CRASH SITE","Periksa bangkai pesawat. Ambil perlengkapan yang masih bisa digunakan.","Pergi ke bangkai pesawat di titik awal dan tekan E."],
+          ["FIRST BLOOD","Kamu kehabisan makanan. Berburu 2 hewan untuk mendapatkan daging.","Buru 2 rusa atau kelinci."],
+          ["FIND WATER","Haus mulai mengancam nyawamu. Cari sumber air.","Temukan air terjun/kolam dan tekan E untuk minum."],
+          ["THE OTHER SURVIVOR","Temukan jejak penumpang lain di sekitar hutan.","Pergi ke area gua barat dan cari perlengkapan yang tertinggal."],
+          ["THE WRECKAGE","Bagian pesawat lain terlihat dari kejauhan. Selidiki.","Cari lokasi bangkai pesawat kedua dekat danau."],
+          ["THE VILLAGE","Seseorang masih hidup. Penduduk desa mungkin tahu sesuatu.","Datangi desa di sebelah tenggara."],
+          ["THE WARNING","Penduduk memperingatkanmu agar tidak mendaki gunung.","Cari petunjuk di gua timur."],
+          ["THE CAVE","Di dalam gua ada jejak camp manusia yang masih baru.","Masuk mendekati gua timur dan selidiki."],
+          ["THE SIGNAL","Radio rusak ditemukan. Kamu butuh tempat tinggi untuk menangkap sinyal.","Naik ke lereng gunung."],
+          ["SECOND CRASH","Sinyal membawa kamu ke bangkai pesawat lain.","Cari bangkai kedua di sisi barat wilayah."],
+          ["OLD CAMP","Ini bukan kecelakaan pertama. Cari bukti di camp lama.","Temukan fasilitas tua di area pegunungan."],
+          ["THE DESERT","Persediaan air menipis. Satu-satunya jalur menuju bunker melewati tanah tandus.","Lewati biome kering di sisi timur dunia."],
+          ["THE WATERFALL","Ada pintu tersembunyi di balik air terjun.","Kembali ke air terjun dan cari jalan masuk."],
+          ["THE BUNKER","Kamu menemukan fasilitas rahasia.","Selidiki bunker dan temukan rekaman."],
+          ["THE TRUTH","Pesawatmu ditembak jatuh. Seseorang memang mengincarmu.","Temukan bukti terakhir di bunker."],
+          ["THE HUNTED","Sekarang mereka tahu kamu masih hidup.","Bertahan hidup dan capai gunung tanpa tertangkap."],
+          ["THE MOUNTAIN BASE","Serang markas kelompok pemburu.","Hancurkan 3 drone penjaga."],
+          ["LAST SIGNAL","Menara radio bisa mengirim SOS.","Hancurkan Drone Induk dan aktifkan sinyal."],
+          ["NO RESCUE","Tim yang datang bukan penyelamat. Mereka adalah pemburu.","Kalahkan pemimpin mereka."],
+          ["EXTRACTION","Keluar dari wilayah terlarang hidup-hidup.","Capai titik ekstraksi dan selesaikan perjalanan."]
+        ];
+
+
+        // ============ CHUNKING SYSTEM ============
+        const CHUNK_SIZE = 100;
+        const WORLD_CHUNKS = 10;
+        const RENDER_DISTANCE = 3;
+        const chunks = new Map();
+        const chunkUpdateTimer = { value: 0 };
+
+        // ============ THREE.JS SETUP ============
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // HemisphereLight (langit/tanah) dipakai gantiin AmbientLight polos - bikin area yang
+        // kena bayangan ikut kena rona warna langit/tanah, bukan abu-abu rata semua.
+        const hemiLight = new THREE.HemisphereLight(0x8fa8d9, 0x3a2f1e, 0.5);
+        scene.add(hemiLight);
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.set(2048, 2048);
+        const d = 150;
+        sunLight.shadow.camera.left = -d; sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d; sunLight.shadow.camera.bottom = -d;
+        sunLight.shadow.camera.far = 500;
+        scene.add(sunLight);
+        // Target-nya WAJIB ditambahin ke scene, soalnya tiap frame kita geser targetnya
+        // ngikutin posisi kamera (lihat animate()) supaya frustum bayangan selalu nyakup
+        // area sekitar pemain, bukan cuma area deket titik (0,0,0) doang.
+        scene.add(sunLight.target);
+
+        // ============ SKY SYSTEM ============
+        // skyGroup dulu ditaruh di sekitar titik (0,0,0), padahal area main pemain ada di
+        // sekitar (500,*,500) - jadi awan/bintang/bulan sering nggak kelihatan sama sekali
+        // dari posisi main normal. Sekarang skyGroup di-update tiap frame biar selalu
+        // "ngikutin" kamera (kayak skybox beneran), jadi langit selalu kelihatan di sekitar
+        // pemain kemanapun dia jalan.
+        const skyGroup = new THREE.Group();
+        scene.add(skyGroup);
+
+        function makeGlowTexture(innerColor, outerColor) {
+            const size = 128;
+            const cnv = document.createElement('canvas');
+            cnv.width = cnv.height = size;
+            const ctx = cnv.getContext('2d');
+            const grad = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+            grad.addColorStop(0, innerColor);
+            grad.addColorStop(0.4, innerColor);
+            grad.addColorStop(1, outerColor);
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, size, size);
+            const tex = new THREE.CanvasTexture(cnv);
+            return tex;
+        }
+
+        // Kubah langit gradasi (zenith lebih gelap, horizon ngikutin warna waktu) - dibikin
+        // dari bola gede sisi-dalam (BackSide) dengan warna per-vertex, jadi tetep se-gaya
+        // low-poly flat-shading yang lain, cuma sekarang ada nuansa gradasinya.
+        const skyDomeGeo = new THREE.SphereGeometry(450, 24, 16);
+        const skyDomeColors = [];
+        {
+            const posAttr = skyDomeGeo.attributes.position;
+            for (let i = 0; i < posAttr.count; i++) {
+                skyDomeColors.push(1, 1, 1); // diisi ulang tiap frame lewat updateSkyDomeColors()
+            }
+        }
+        skyDomeGeo.setAttribute('color', new THREE.Float32BufferAttribute(skyDomeColors, 3));
+        const skyDomeMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false });
+        const skyDome = new THREE.Mesh(skyDomeGeo, skyDomeMat);
+        skyGroup.add(skyDome);
+
+        function updateSkyDomeColors(horizonColor, zenithColor) {
+            const posAttr = skyDomeGeo.attributes.position;
+            const colorAttr = skyDomeGeo.attributes.color;
+            const tmp = new THREE.Color();
+            for (let i = 0; i < posAttr.count; i++) {
+                const y = posAttr.getY(i);
+                const t = THREE.MathUtils.clamp((y / 450 + 0.15) / 1.0, 0, 1);
+                tmp.copy(horizonColor).lerp(zenithColor, t);
+                colorAttr.setXYZ(i, tmp.r, tmp.g, tmp.b);
+            }
+            colorAttr.needsUpdate = true;
+        }
+
+        // Matahari & bulan yang keliatan beneran (dulu cuma DirectionalLight tak kasat mata)
+        const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: makeGlowTexture('rgba(255,250,220,1)', 'rgba(255,200,80,0)'),
+            transparent: true, depthWrite: false, fog: false,
+        }));
+        sunSprite.scale.set(60, 60, 1);
+        skyGroup.add(sunSprite);
+
+        const clouds = [];
+        function createClouds() {
+            const cloudGeo = new THREE.SphereGeometry(8, 8, 8);
+            const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+            for (let i = 0; i < 30; i++) {
+                const cloud = new THREE.Group();
+                const numPuffs = 3 + Math.floor(Math.random() * 4);
+                for (let j = 0; j < numPuffs; j++) {
+                    const puff = new THREE.Mesh(cloudGeo, cloudMat);
+                    puff.position.set(j * 6 - numPuffs * 3, Math.random() * 3, Math.random() * 4);
+                    puff.scale.setScalar(0.8 + Math.random() * 0.5);
+                    cloud.add(puff);
+                }
+                cloud.position.set(
+                    (Math.random() - 0.5) * 800,
+                    80 + Math.random() * 40,
+                    (Math.random() - 0.5) * 800
+                );
+                cloud.userData.speed = 0.5 + Math.random() * 1;
+                skyGroup.add(cloud);
+                clouds.push(cloud);
+            }
+        }
+        createClouds();
+
+        const starsGeo = new THREE.BufferGeometry();
+        const starsPositions = [];
+        for (let i = 0; i < 500; i++) {
+            const theta = Math.random() * Math.PI * 2;
+            const phi = Math.random() * Math.PI;
+            const r = 400;
+            starsPositions.push(
+                r * Math.sin(phi) * Math.cos(theta),
+                r * Math.cos(phi) + 100,
+                r * Math.sin(phi) * Math.sin(theta)
+            );
+        }
+        starsGeo.setAttribute('position', new THREE.Float32BufferAttribute(starsPositions, 3));
+        const starsMat = new THREE.PointsMaterial({ color: 0xffffff, size: 1.5, transparent: true, opacity: 0, fog: false });
+        const stars = new THREE.Points(starsGeo, starsMat);
+        skyGroup.add(stars);
+
+        const moonGeo = new THREE.SphereGeometry(15, 16, 16);
+        const moonMat = new THREE.MeshBasicMaterial({ color: 0xeeeeff, fog: false });
+        const moon = new THREE.Mesh(moonGeo, moonMat);
+        moon.position.set(200, 150, -200);
+        skyGroup.add(moon);
+        const moonGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: makeGlowTexture('rgba(230,235,255,0.9)', 'rgba(200,210,255,0)'),
+            transparent: true, depthWrite: false, fog: false,
+        }));
+        moonGlow.scale.set(45, 45, 1);
+        moon.add(moonGlow);
+
+        // ============ TERRAIN HEIGHT FUNCTION ============
+        // Jarak titik (px,pz) ke ruas garis (ax,az)-(bx,bz) - dipakai buat "mengukir" jalur air
+        // terjun & jalan setapak di atas medan yang udah ada, dan cari t (0..1, posisi di
+        // sepanjang ruasnya) buat ngelerp ketinggian/warna di sepanjang jalurnya.
+        function distToSegment(px, pz, ax, az, bx, bz) {
+            const abx = bx - ax, abz = bz - az;
+            const apx = px - ax, apz = pz - az;
+            const abLen2 = abx * abx + abz * abz;
+            let t = abLen2 > 0 ? (apx * abx + apz * abz) / abLen2 : 0;
+            t = Math.max(0, Math.min(1, t));
+            const cx = ax + abx * t, cz = az + abz * t;
+            return { dist: Math.hypot(px - cx, pz - cz), t };
+        }
+
+        function getBaseTerrainHeight(x, z) {
+            let y = 0;
+            y += Math.sin(x * 0.05) * Math.cos(z * 0.05) * 4;
+            y += Math.sin(x * 0.15 + 1) * Math.cos(z * 0.15) * 2;
+            y += Math.sin(x * 0.3) * Math.cos(z * 0.3) * 0.5;
+            // Gunung di area tertentu
+            const distFromCenter = Math.sqrt(Math.pow(x - 500, 2) + Math.pow(z - 500, 2));
+            if (distFromCenter > 250 && distFromCenter < 400) {
+                let mountain = Math.max(0, 20 - (distFromCenter - 250) * 0.1) * 2;
+                // Noise tambahan biar puncaknya nggak mulus kayak kubah, lebih berbatu/rugged
+                mountain += Math.sin(x * 0.4) * Math.cos(z * 0.37) * 2.5 * (mountain / 40);
+                y += mountain;
+            }
+            return y;
+        }
+
+        // ============ AIR TERJUN ============
+        // "Diukir" nembus lereng gunung: dari titik atas (di ketinggian gunung) turun ke titik
+        // bawah (nyaris level air, jadi kolamnya kebentuk otomatis) - lihat createWaterfall().
+        const WATERFALL_TOP = { x: 712, z: 288 };
+        const WATERFALL_BOTTOM = { x: 670, z: 330 };
+        const WATERFALL_HALF_WIDTH = 4;
+        const WATERFALL_POOL_Y = -1.35;
+        const WATERFALL_TOP_Y = getBaseTerrainHeight(WATERFALL_TOP.x, WATERFALL_TOP.z);
+
+        function getTerrainHeight(x, z) {
+            const seg = distToSegment(x, z, WATERFALL_TOP.x, WATERFALL_TOP.z, WATERFALL_BOTTOM.x, WATERFALL_BOTTOM.z);
+            const channelR = WATERFALL_HALF_WIDTH * 2.2;
+            if (seg.dist < channelR) {
+                const chuteY = WATERFALL_TOP_Y + (WATERFALL_POOL_Y - WATERFALL_TOP_Y) * seg.t;
+                const blend = 1 - seg.dist / channelR;
+                const base = getBaseTerrainHeight(x, z);
+                return base * (1 - blend) + chuteY * blend;
+            }
+            return getBaseTerrainHeight(x, z);
+        }
+
+        // ============ JALAN SETAPAK ============
+        // Sama kayak air terjun, jalan cuma "ditandain" sebagai lerp warna di atas medan yang
+        // udah ada (bukan geometry sendiri) - jadi tetep ngikutin kontur tanah dengan mulus.
+        const ROAD_COLOR = new THREE.Color(0xb08a5c);
+        const ROAD_WIDTH = 2.4;
+        const ROAD_BLEND = 2;
+        const ROAD_SEGMENTS = [];
+        function addRoadPath(points) {
+            for (let i = 0; i < points.length - 1; i++) ROAD_SEGMENTS.push([points[i], points[i + 1]]);
+        }
+        addRoadPath([{ x: 500, z: 500 }, { x: 525, z: 480 }, { x: 550, z: 460 }, { x: 550, z: 450 }]); // spawn -> desa
+        addRoadPath([{ x: 550, z: 450 }, { x: 610, z: 400 }, { x: WATERFALL_BOTTOM.x, z: WATERFALL_BOTTOM.z }]); // desa -> air terjun
+        addRoadPath([{ x: 550, z: 460 }, { x: 490, z: 460 }, { x: 460, z: 445 }, { x: 440, z: 440 }]); // cabang -> gua barat
+        addRoadPath([{ x: 550, z: 450 }, { x: 560, z: 510 }, { x: 570, z: 570 }]); // cabang -> gua timur
+
+        function roadBlendAt(x, z) {
+            let minDist = Infinity;
+            for (const [a, b] of ROAD_SEGMENTS) {
+                const d = distToSegment(x, z, a.x, a.z, b.x, b.z).dist;
+                if (d < minDist) minDist = d;
+            }
+            if (minDist > ROAD_WIDTH + ROAD_BLEND) return 0;
+            if (minDist <= ROAD_WIDTH) return 1;
+            return 1 - (minDist - ROAD_WIDTH) / ROAD_BLEND;
+        }
+
+        // Palet biome dipakai bareng semua chunk (dibikin sekali, di-lerp per-vertex tiap chunk
+        // dibuat - lihat terrainColorAt()).
+        const BIOME_SAND = new THREE.Color(0xcbb679);
+        const BIOME_GRASS_A = new THREE.Color(0x4a7c2e);
+        const BIOME_GRASS_B = new THREE.Color(0x5c9436);
+        const BIOME_ROCK = new THREE.Color(0x6b6b63);
+        const BIOME_ROCK_DARK = new THREE.Color(0x514c46);
+        const BIOME_SNOW = new THREE.Color(0xf4f6fa);
+        const BIOME_DEEP = new THREE.Color(0x223a1a);
+        const _tmpColorA = new THREE.Color(), _tmpColorB = new THREE.Color();
+
+        // Satu material air dipakai bareng semua chunk (lihat createChunk) biar shimmer-nya
+        // bisa dianimasiin sekali tiap frame - lihat pemanggilan di animate().
+        const sharedWaterMat = new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.78, roughness: 0.15, metalness: 0.65, flatShading: true });
+
+        function terrainColorAt(x, z, y, slope) {
+            let c;
+            if (y < -2) {
+                c = _tmpColorA.copy(BIOME_DEEP);
+            } else if (y < -0.6) {
+                const t = THREE.MathUtils.clamp((-0.6 - y) / 1.4, 0, 1);
+                c = _tmpColorA.copy(BIOME_SAND).lerp(BIOME_DEEP, t);
+            } else if (y < 4.5) {
+                const grassMix = (Math.sin(x * 0.3) * Math.cos(z * 0.31) + 1) / 2;
+                const baseGrass = _tmpColorB.copy(BIOME_GRASS_A).lerp(BIOME_GRASS_B, grassMix);
+                const shoreT = THREE.MathUtils.clamp((y + 0.6) / 1.3, 0, 1);
+                c = _tmpColorA.copy(BIOME_SAND).lerp(baseGrass, shoreT);
+                if (slope > 0.8) c.lerp(BIOME_ROCK, THREE.MathUtils.clamp((slope - 0.8) / 1.4, 0, 0.85));
+            } else if (y < 9) {
+                const t = THREE.MathUtils.clamp((y - 4.5) / 4.5, 0, 1);
+                c = _tmpColorA.copy(BIOME_ROCK).lerp(BIOME_ROCK_DARK, 0.25).lerp(BIOME_SNOW, t);
+            } else {
+                c = _tmpColorA.copy(BIOME_SNOW);
+            }
+            // Jalan setapak: warnanya di-lerp di atas biome yang udah dihitung, jadi jalannya
+            // tetep ngikutin kontur & shading tanah asli, cuma warnanya aja yang ketimpa.
+            if (y < 6) {
+                const rb = roadBlendAt(x, z);
+                if (rb > 0) c.lerp(ROAD_COLOR, rb * 0.9);
+            }
+            return c;
+        }
+
+        // ============ POHON MULTI-SPESIES ============
+        // Dulu "pohon" cuma satu kerucut polos (ConeGeometry doang, tanpa batang) - sekarang
+        // tiap spesies digabung (batang + daun/dahan, masing-masing dikasih warna vertex
+        // sendiri) jadi SATU geometry lewat mergeGeometries, biar tetep bisa dipakein di
+        // InstancedMesh (satu instance = satu pohon utuh, gampang di-tebang kayak sebelumnya)
+        // tanpa nambah jumlah draw call. Geometry & material-nya dibikin SEKALI di sini
+        // (bukan tiap createChunk), terus dipakai bareng-bareng semua chunk - lihat
+        // TREE_SPECIES_GEO & sharedTreeMat di bawah, sama flag userData.sharedGeometry/
+        // sharedMaterial yang bikin removeChunk() nggak ikut nge-dispose mereka.
+        function paintGeometry(geo, color) {
+            const c = new THREE.Color(color);
+            const count = geo.attributes.position.count;
+            const colors = new Float32Array(count * 3);
+            for (let i = 0; i < count; i++) { colors[i * 3] = c.r; colors[i * 3 + 1] = c.g; colors[i * 3 + 2] = c.b; }
+            geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            return geo;
+        }
+
+        function buildTreeSpecies() {
+            const species = {};
+
+            // --- Pinus/cemara: batang + 3 tingkat daun meruncing, khas hutan konifer ---
+            // Catatan: semua geometry bagian pohon di-toNonIndexed() dulu sebelum digabung -
+            // IcosahedronGeometry (dipakai buat daun oak/birch) itu non-indexed dari sononya,
+            // sedangkan Cylinder/Cone indexed, dan mergeGeometries() bakal gagal diam-diam
+            // (balikin null!) kalau ada yang indexed dicampur sama yang nggak. Nyeragamin
+            // semuanya jadi non-indexed dulu biar mergeGeometries()-nya pasti berhasil.
+            {
+                const trunk = new THREE.CylinderGeometry(0.22, 0.32, 1.4, 6).toNonIndexed();
+                trunk.translate(0, 0.7, 0);
+                paintGeometry(trunk, 0x5c4326);
+                const tier1 = new THREE.ConeGeometry(1.7, 2.4, 7).toNonIndexed();
+                tier1.translate(0, 2.4, 0);
+                paintGeometry(tier1, 0x1f3d17);
+                const tier2 = new THREE.ConeGeometry(1.25, 2.0, 7).toNonIndexed();
+                tier2.translate(0, 3.5, 0);
+                paintGeometry(tier2, 0x27481d);
+                const tier3 = new THREE.ConeGeometry(0.75, 1.6, 7).toNonIndexed();
+                tier3.translate(0, 4.45, 0);
+                paintGeometry(tier3, 0x2f5a24);
+                species.pine = mergeGeometries([trunk, tier1, tier2, tier3]);
+            }
+
+            // --- Oak/rimbun: batang gemuk pendek + gerombolan "bola" daun yang saling
+            // tumpuk, jadi siluetnya bulat rimbun (beda banget sama pinus yang meruncing) ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.3, 0.45, 1.7, 6).toNonIndexed();
+                trunk.translate(0, 0.85, 0);
+                paintGeometry(trunk, 0x6b4a2c);
+                const b1 = new THREE.IcosahedronGeometry(1.3, 0).toNonIndexed();
+                b1.translate(0, 2.5, 0);
+                paintGeometry(b1, 0x4d7c2b);
+                const b2 = new THREE.IcosahedronGeometry(1.0, 0).toNonIndexed();
+                b2.translate(0.9, 2.2, 0.4);
+                paintGeometry(b2, 0x5a8f34);
+                const b3 = new THREE.IcosahedronGeometry(1.0, 0).toNonIndexed();
+                b3.translate(-0.85, 2.15, -0.5);
+                paintGeometry(b3, 0x466b26);
+                const b4 = new THREE.IcosahedronGeometry(0.8, 0).toNonIndexed();
+                b4.translate(0.1, 3.0, -0.7);
+                paintGeometry(b4, 0x5a8f34);
+                species.oak = mergeGeometries([trunk, b1, b2, b3, b4]);
+            }
+
+            // --- Birch: batang tinggi ramping warna pucat + daun kehijau-kuningan,
+            // kontras sama dua spesies ijo tua di atas ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.14, 0.2, 2.6, 6).toNonIndexed();
+                trunk.translate(0, 1.3, 0);
+                paintGeometry(trunk, 0xdcd6c4);
+                const foliage = new THREE.IcosahedronGeometry(1.05, 0).toNonIndexed();
+                foliage.translate(0, 3.3, 0);
+                paintGeometry(foliage, 0x8ba33a);
+                const foliage2 = new THREE.IcosahedronGeometry(0.7, 0).toNonIndexed();
+                foliage2.translate(0.6, 2.9, 0.3);
+                paintGeometry(foliage2, 0x9db844);
+                species.birch = mergeGeometries([trunk, foliage, foliage2]);
+            }
+
+            // --- Pohon mati: cuma batang + beberapa dahan kering, tanpa daun -
+            // buat selingan visual (nggak semua pohon rimbun) & suasana area tandus/gunung ---
+            {
+                const trunk = new THREE.CylinderGeometry(0.12, 0.3, 2.8, 6).toNonIndexed();
+                trunk.translate(0, 1.4, 0);
+                paintGeometry(trunk, 0x5b4a3a);
+                const branch1 = new THREE.CylinderGeometry(0.06, 0.1, 1.1, 5).toNonIndexed();
+                branch1.rotateZ(Math.PI / 3.2);
+                branch1.translate(0.5, 2.5, 0);
+                paintGeometry(branch1, 0x5b4a3a);
+                const branch2 = new THREE.CylinderGeometry(0.05, 0.09, 0.9, 5).toNonIndexed();
+                branch2.rotateZ(-Math.PI / 2.6);
+                branch2.translate(-0.4, 2.7, 0.2);
+                paintGeometry(branch2, 0x4a3c2e);
+                species.dead = mergeGeometries([trunk, branch1, branch2]);
+            }
+
+            return species;
+        }
+
+        const TREE_SPECIES_GEO = buildTreeSpecies();
+        // Satu material dipakai bareng semua spesies & semua chunk - warnanya dateng dari
+        // vertex color yang udah "dilukis" per-bagian geometry-nya (lihat paintGeometry()),
+        // bukan dari material.color.
+        const sharedTreeMat = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.9 });
+        // Urutan & bobot kemunculan tiap spesies pas nyebar pohon di createChunk() - pinus
+        // paling umum (hutan konifer jadi dominan), pohon mati paling langka (cuma selingan).
+        const TREE_SPECIES_LIST = [
+            { tag: 'pine', geo: TREE_SPECIES_GEO.pine, weight: 0.48, cap: 34 },
+            { tag: 'oak', geo: TREE_SPECIES_GEO.oak, weight: 0.30, cap: 22 },
+            { tag: 'birch', geo: TREE_SPECIES_GEO.birch, weight: 0.14, cap: 14 },
+            { tag: 'dead', geo: TREE_SPECIES_GEO.dead, weight: 0.08, cap: 10 },
+        ];
+
+        // ============ CHUNK MANAGEMENT ============
+        function getChunkKey(cx, cz) { return `${cx},${cz}`; }
+
+        function createChunk(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            if (chunks.has(key)) return;
+
+            const chunkGroup = new THREE.Group();
+            chunkGroup.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+
+            const segments = 50;
+            const geometry = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, segments, segments);
+            geometry.rotateX(-Math.PI / 2);
+            const posAttribute = geometry.attributes.position;
+            const colors = [];
+
+            // Biome per-vertex diperhalus: dulu cuma 4 pita warna berdasarkan tinggi doang
+            // (grass/rock/snow), sekarang nambah pasir di tepi air, variasi dua warna rumput
+            // biar nggak keliatan rata polos, dan lereng curam (dihitung dari kemiringan lokal)
+            // ikut menular jadi warna batu meski ketinggiannya masih di zona "rumput".
+            for (let i = 0; i < posAttribute.count; i++) {
+                const x = posAttribute.getX(i) + cx * CHUNK_SIZE;
+                const z = posAttribute.getZ(i) + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(x, z);
+                posAttribute.setY(i, y);
+
+                const eps = 1.5;
+                const slope = (Math.abs(getTerrainHeight(x + eps, z) - y) + Math.abs(getTerrainHeight(x, z + eps) - y)) / eps;
+
+                const c = terrainColorAt(x, z, y, slope);
+                colors.push(c.r, c.g, c.b);
+            }
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+            geometry.computeVertexNormals();
+            const terrain = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true }));
+            terrain.receiveShadow = true; terrain.name = 'terrain';
+            chunkGroup.add(terrain);
+
+            const waterGeo = new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE, 20, 20);
+            waterGeo.rotateX(-Math.PI / 2);
+            // Semua chunk pakai satu material air yang sama (sharedWaterMat) biar shimmer-nya
+            // bisa dianimasiin sekali tiap frame tanpa harus loop semua chunk yang lagi kemuat -
+            // makanya ditandain userData.sharedMaterial biar removeChunk() nggak ikut nge-dispose
+            // dia pas chunk-nya di-unload (soalnya chunk lain masih mamake).
+            const water = new THREE.Mesh(waterGeo, sharedWaterMat);
+            water.userData.sharedMaterial = true;
+            water.position.y = -1.5;
+            chunkGroup.add(water);
+
+            // POHON MULTI-SPESIES (pinus/oak/birch/pohon mati - lihat TREE_SPECIES_LIST di
+            // atas). Tiap spesies satu InstancedMesh sendiri, tapi geometry & material-nya
+            // dipakai bareng semua chunk (dibikin sekali di buildTreeSpecies()/sharedTreeMat),
+            // jadi di sini cuma nge-alloc InstancedMesh baru per chunk & isi instance-nya.
+            const treeCount = 90;
+            const treeMeshes = TREE_SPECIES_LIST.map(sp => {
+                const mesh = new THREE.InstancedMesh(sp.geo, sharedTreeMat, sp.cap);
+                mesh.castShadow = true; mesh.receiveShadow = true;
+                mesh.userData.sharedGeometry = true;
+                mesh.userData.sharedMaterial = true;
+                mesh.userData.treeTag = sp.tag;
+                mesh.count = 0;
+                return { tag: sp.tag, mesh, cap: sp.cap, index: 0 };
+            });
+
+            const dummy = new THREE.Object3D();
+
+            for (let i = 0; i < treeCount; i++) {
+                const x = (Math.random() - 0.5) * CHUNK_SIZE;
+                const z = (Math.random() - 0.5) * CHUNK_SIZE;
+                const worldX = x + cx * CHUNK_SIZE;
+                const worldZ = z + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(worldX, worldZ);
+                if (y > -1 && y < 4) {
+                    // Pilih spesies secara acak berbobot (lihat TREE_SPECIES_LIST.weight),
+                    // lalu cari mesh spesies itu yang masih ada slot kosongnya.
+                    let roll = Math.random();
+                    let chosen = treeMeshes[0];
+                    for (const tm of treeMeshes) {
+                        const sp = TREE_SPECIES_LIST.find(s => s.tag === tm.tag);
+                        if (roll < sp.weight) { chosen = tm; break; }
+                        roll -= sp.weight;
+                    }
+                    if (chosen.index >= chosen.cap) continue;
+                    dummy.position.set(x, y, z);
+                    dummy.scale.setScalar(0.8 + Math.random() * 0.6);
+                    dummy.rotation.y = Math.random() * Math.PI * 2;
+                    dummy.updateMatrix();
+                    chosen.mesh.setMatrixAt(chosen.index++, dummy.matrix);
+                }
+            }
+            treeMeshes.forEach(tm => {
+                tm.mesh.count = tm.index;
+                chunkGroup.add(tm.mesh);
+            });
+
+            // SEMAK-SEMAK (Bushes)
+            const bushCount = 30;
+            const bushGeo = new THREE.SphereGeometry(1, 6, 6);
+            const bushMat = new THREE.MeshStandardMaterial({ color: 0x3d6b2e, flatShading: true });
+            const bushMesh = new THREE.InstancedMesh(bushGeo, bushMat, bushCount);
+            bushMesh.castShadow = true;
+            let bushIndex = 0;
+            
+            for (let i = 0; i < bushCount; i++) {
+                const x = (Math.random() - 0.5) * CHUNK_SIZE;
+                const z = (Math.random() - 0.5) * CHUNK_SIZE;
+                const worldX = x + cx * CHUNK_SIZE;
+                const worldZ = z + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(worldX, worldZ);
+                if (y > -1 && y < 3) {
+                    dummy.position.set(x, y + 0.5, z);
+                    dummy.scale.setScalar(0.5 + Math.random() * 0.5);
+                    dummy.updateMatrix();
+                    bushMesh.setMatrixAt(bushIndex++, dummy.matrix);
+                }
+            }
+            bushMesh.count = bushIndex;
+            chunkGroup.add(bushMesh);
+
+            // GEROMBOLAN BATU (bisa ditambang [E] buat dapet batu - dulu nggak ada sumber batu
+            // sama sekali di game ini padahal senjata "Batu" butuh stok batu buat ditembakin)
+            const rockCount = 18;
+            const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
+            const rockMat = new THREE.MeshStandardMaterial({ color: 0x777777, flatShading: true, roughness: 0.95 });
+            const rockMesh = new THREE.InstancedMesh(rockGeo, rockMat, rockCount);
+            rockMesh.castShadow = true; rockMesh.receiveShadow = true;
+            let rockIndex = 0;
+
+            for (let i = 0; i < rockCount; i++) {
+                const x = (Math.random() - 0.5) * CHUNK_SIZE;
+                const z = (Math.random() - 0.5) * CHUNK_SIZE;
+                const worldX = x + cx * CHUNK_SIZE;
+                const worldZ = z + cz * CHUNK_SIZE;
+                const y = getTerrainHeight(worldX, worldZ);
+                if (y > -1 && y < 5) {
+                    dummy.position.set(x, y + 0.25, z);
+                    dummy.scale.setScalar(0.6 + Math.random() * 0.7);
+                    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+                    dummy.updateMatrix();
+                    rockMesh.setMatrixAt(rockIndex++, dummy.matrix);
+                }
+            }
+            rockMesh.count = rockIndex;
+            chunkGroup.add(rockMesh);
+
+            scene.add(chunkGroup);
+            chunks.set(key, { group: chunkGroup, terrain, water, treeMeshes, bushMesh, rockMesh, cx, cz });
+        }
+
+        function removeChunk(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            const chunk = chunks.get(key);
+            if (chunk) {
+                scene.remove(chunk.group);
+                chunk.group.traverse((child) => {
+                    // Geometry pohon (TREE_SPECIES_GEO) ditandain "sharedGeometry" karena
+                    // dibikin sekali di module scope dan dipakai instance-instance pohon di
+                    // SEMUA chunk - jangan di-dispose di sini, chunk lain yang masih kemuat
+                    // bakal ikut ilang pohonnya kalau geometry-nya kebuang.
+                    if (child.geometry && !(child.userData && child.userData.sharedGeometry)) child.geometry.dispose();
+                    // Material yang ditandain "sharedMaterial" (misalnya sharedWaterMat) dipakai
+                    // bareng-bareng semua chunk, jadi JANGAN di-dispose di sini - chunk lain yang
+                    // masih kemuat bakal ikut rusak renderingnya kalau materialnya kebuang.
+                    if (child.material && !(child.userData && child.userData.sharedMaterial)) {
+                        if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                        else child.material.dispose();
+                    }
+                });
+                chunks.delete(key);
+            }
+        }
+
+        function updateChunks() {
+            const playerChunkX = Math.floor(camera.position.x / CHUNK_SIZE);
+            const playerChunkZ = Math.floor(camera.position.z / CHUNK_SIZE);
+
+            for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+                for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+                    const cx = playerChunkX + dx;
+                    const cz = playerChunkZ + dz;
+                    if (cx >= 0 && cx < WORLD_CHUNKS && cz >= 0 && cz < WORLD_CHUNKS) {
+                        createChunk(cx, cz);
+                    }
+                }
+            }
+
+            chunks.forEach((chunk, key) => {
+                const dx = chunk.cx - playerChunkX;
+                const dz = chunk.cz - playerChunkZ;
+                if (Math.abs(dx) > RENDER_DISTANCE + 1 || Math.abs(dz) > RENDER_DISTANCE + 1) {
+                    removeChunk(chunk.cx, chunk.cz);
+                }
+            });
+
+            const chunkInfo = document.getElementById('chunk-info');
+            chunkInfo.innerText = `Chunk: ${playerChunkX}, ${playerChunkZ} | Loaded: ${chunks.size}`;
+            chunkInfo.style.opacity = 1;
+            setTimeout(() => { chunkInfo.style.opacity = 0; }, 2000);
+        }
+
+        // ============ ANIMALS (Rusa & Kelinci - Lebih Detail) ============
+        const animals = [];
+        const animalGroup = new THREE.Group();
+        scene.add(animalGroup);
+
+        class Animal {
+            constructor(type, pos) {
+                this.type = type;
+                this.group = new THREE.Group();
+                this.alive = true;
+                this.hp = type === 'deer' ? 30 : 15;
+                this.speed = type === 'deer' ? 8 : 12;
+                this.fleeRadius = type === 'deer' ? 15 : 10;
+                this.wanderTimer = 0;
+                this.wanderTarget = null;
+                this.respawnTimer = 0;
+                this.homePos = pos.clone();
+                this.meatDrop = type === 'deer' ? 3 : 1;
+                
+                this.buildModel();
+                this.group.position.copy(pos);
+                animalGroup.add(this.group);
+            }
+
+            buildModel() {
+                if (this.type === 'deer') {
+                    // Body lebih detail
+                    const bodyGeo = new THREE.BoxGeometry(1.2, 0.9, 2);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x8B4513 });
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.position.y = 1.3;
+                    body.castShadow = true;
+                    this.group.add(body);
+                    
+                    // Neck
+                    const neckGeo = new THREE.CylinderGeometry(0.3, 0.4, 0.8, 8);
+                    const neck = new THREE.Mesh(neckGeo, bodyMat);
+                    neck.position.set(0, 1.8, 1.2);
+                    neck.rotation.x = -0.3;
+                    neck.castShadow = true;
+                    this.group.add(neck);
+                    
+                    // Head
+                    const headGeo = new THREE.BoxGeometry(0.6, 0.6, 0.9);
+                    const head = new THREE.Mesh(headGeo, bodyMat);
+                    head.position.set(0, 2.2, 1.6);
+                    head.castShadow = true;
+                    this.group.add(head);
+                    
+                    // Antlers
+                    const antlerGeo = new THREE.CylinderGeometry(0.05, 0.1, 0.5, 6);
+                    const antlerMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
+                    const antler1 = new THREE.Mesh(antlerGeo, antlerMat);
+                    antler1.position.set(-0.2, 2.6, 1.6);
+                    antler1.rotation.z = 0.3;
+                    this.group.add(antler1);
+                    const antler2 = new THREE.Mesh(antlerGeo, antlerMat);
+                    antler2.position.set(0.2, 2.6, 1.6);
+                    antler2.rotation.z = -0.3;
+                    this.group.add(antler2);
+                    
+                    // Legs
+                    const legGeo = new THREE.CylinderGeometry(0.15, 0.1, 1.2, 8);
+                    const legMat = new THREE.MeshStandardMaterial({ color: 0x654321 });
+                    const legPositions = [[-0.4, 0.6, 0.7], [0.4, 0.6, 0.7], [-0.4, 0.6, -0.7], [0.4, 0.6, -0.7]];
+                    legPositions.forEach(pos => {
+                        const leg = new THREE.Mesh(legGeo, legMat);
+                        leg.position.set(...pos);
+                        leg.castShadow = true;
+                        this.group.add(leg);
+                    });
+                    
+                    // Tail
+                    const tailGeo = new THREE.SphereGeometry(0.15, 6, 6);
+                    const tail = new THREE.Mesh(tailGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                    tail.position.set(0, 1.5, -1);
+                    this.group.add(tail);
+                } else { // rabbit - lebih detail
+                    const bodyGeo = new THREE.CapsuleGeometry(0.4, 0.8, 4, 8);
+                    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xcccccc });
+                    const body = new THREE.Mesh(bodyGeo, bodyMat);
+                    body.position.y = 0.8;
+                    body.rotation.x = Math.PI / 2;
+                    body.castShadow = true;
+                    this.group.add(body);
+                    
+                    // Ears
+                    const earGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.5, 6);
+                    const earMat = new THREE.MeshStandardMaterial({ color: 0xdddddd });
+                    const ear1 = new THREE.Mesh(earGeo, earMat);
+                    ear1.position.set(-0.15, 1.3, 0);
+                    ear1.rotation.z = 0.2;
+                    this.group.add(ear1);
+                    const ear2 = new THREE.Mesh(earGeo, earMat);
+                    ear2.position.set(0.15, 1.3, 0);
+                    ear2.rotation.z = -0.2;
+                    this.group.add(ear2);
+                    
+                    // Eyes
+                    const eyeGeo = new THREE.SphereGeometry(0.05, 4, 4);
+                    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+                    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+                    eye1.position.set(-0.2, 1.1, 0.35);
+                    this.group.add(eye1);
+                    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+                    eye2.position.set(0.2, 1.1, 0.35);
+                    this.group.add(eye2);
+                    
+                    // Tail
+                    const tailGeo = new THREE.SphereGeometry(0.1, 4, 4);
+                    const tail = new THREE.Mesh(tailGeo, new THREE.MeshStandardMaterial({ color: 0xffffff }));
+                    tail.position.set(0, 0.9, -0.4);
+                    this.group.add(tail);
+                }
+            }
+
+            takeDamage(amount) {
+                if (!this.alive) return;
+                this.hp -= amount;
+                SoundManager.play('hit');
+                if (this.hp <= 0) {
+                    this.die();
+                }
+            }
+
+            die() {
+                this.alive = false;
+                this.group.visible = false;
+                this.respawnTimer = 30;
+                SoundManager.play('animal_death');
+                totalAnimals++;
+                updateAnimalCounter();
+                
+                inventory.meat = (inventory.meat || 0) + this.meatDrop;
+                updateUI();
+                showNotification(`🥩 +${this.meatDrop} Daging!`, false);
+                updateStoryProgress();
+                saveGame();
+            }
+
+            update(delta, playerPos) {
+                if (!this.alive) {
+                    this.respawnTimer -= delta;
+                    if (this.respawnTimer <= 0) {
+                        this.alive = true;
+                        this.hp = this.type === 'deer' ? 30 : 15;
+                        const terrainY = getTerrainHeight(this.homePos.x, this.homePos.z);
+                        this.group.position.set(this.homePos.x, terrainY, this.homePos.z);
+                        this.group.visible = true;
+                    }
+                    return;
+                }
+
+                const distToPlayer = this.group.position.distanceTo(playerPos);
+                
+                if (distToPlayer < this.fleeRadius) {
+                    const fleeDir = new THREE.Vector3().subVectors(this.group.position, playerPos).normalize();
+                    const newX = this.group.position.x + fleeDir.x * this.speed * delta;
+                    const newZ = this.group.position.z + fleeDir.z * this.speed * delta;
+                    const newY = getTerrainHeight(newX, newZ);
+                    this.group.position.set(newX, newY, newZ);
+                    this.group.lookAt(this.group.position.x + fleeDir.x, this.group.position.y, this.group.position.z + fleeDir.z);
+                } else {
+                    this.wanderTimer -= delta;
+                    if (this.wanderTimer <= 0) {
+                        this.wanderTimer = 3 + Math.random() * 4;
+                        this.wanderTarget = new THREE.Vector3(
+                            this.homePos.x + (Math.random() - 0.5) * 20,
+                            this.group.position.y,
+                            this.homePos.z + (Math.random() - 0.5) * 20
+                        );
+                    }
+                    if (this.wanderTarget) {
+                        const dir = new THREE.Vector3().subVectors(this.wanderTarget, this.group.position).normalize();
+                        const newX = this.group.position.x + dir.x * 2 * delta;
+                        const newZ = this.group.position.z + dir.z * 2 * delta;
+                        const newY = getTerrainHeight(newX, newZ);
+                        this.group.position.set(newX, newY, newZ);
+                        this.group.lookAt(this.wanderTarget.x, this.group.position.y, this.wanderTarget.z);
+                    }
+                }
+
+                const distFromHome = this.group.position.distanceTo(this.homePos);
+                if (distFromHome > 30) {
+                    const dirHome = new THREE.Vector3().subVectors(this.homePos, this.group.position).normalize();
+                    const newX = this.group.position.x + dirHome.x * 3 * delta;
+                    const newZ = this.group.position.z + dirHome.z * 3 * delta;
+                    const newY = getTerrainHeight(newX, newZ);
+                    this.group.position.set(newX, newY, newZ);
+                }
+            }
+        }
+
+        function spawnAnimals() {
+            const deerPositions = [
+                new THREE.Vector3(520, 0, 520),
+                new THREE.Vector3(475, 0, 515),
+                new THREE.Vector3(515, 0, 470),
+                new THREE.Vector3(480, 0, 475)
+            ];
+            const rabbitPositions = [
+                new THREE.Vector3(510, 0, 510),
+                new THREE.Vector3(485, 0, 520),
+                new THREE.Vector3(525, 0, 485),
+                new THREE.Vector3(490, 0, 480),
+                new THREE.Vector3(530, 0, 505),
+                new THREE.Vector3(470, 0, 490)
+            ];
+            
+            deerPositions.forEach(pos => {
+                const y = getTerrainHeight(pos.x, pos.z);
+                const finalPos = new THREE.Vector3(pos.x, y, pos.z);
+                animals.push(new Animal('deer', finalPos));
+            });
+            rabbitPositions.forEach(pos => {
+                const y = getTerrainHeight(pos.x, pos.z);
+                const finalPos = new THREE.Vector3(pos.x, y, pos.z);
+                animals.push(new Animal('rabbit', finalPos));
+            });
+        }
+        spawnAnimals();
+
+        // ============ CAVE SYSTEM ============
+        const caveGroup = new THREE.Group();
+        scene.add(caveGroup);
+        const caves = [];
+
+        function createCave(pos) {
+            const cave = new THREE.Group();
+            
+            const rockGeo = new THREE.DodecahedronGeometry(8, 1);
+            const rockMat = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true, roughness: 0.9 });
+            const rock = new THREE.Mesh(rockGeo, rockMat);
+            rock.position.y = 4;
+            rock.castShadow = true;
+            cave.add(rock);
+            
+            const holeGeo = new THREE.CylinderGeometry(3, 3, 8, 16, 1, true);
+            const holeMat = new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide });
+            const hole = new THREE.Mesh(holeGeo, holeMat);
+            hole.position.set(0, 4, 4);
+            hole.rotation.x = Math.PI / 2;
+            cave.add(hole);
+            
+            const caveLight = new THREE.PointLight(0x4444ff, 0.5, 10);
+            caveLight.position.set(0, 3, 2);
+            cave.add(caveLight);
+            
+            cave.position.copy(pos);
+            caveGroup.add(cave);
+            caves.push({ group: cave, position: pos.clone(), radius: 10 });
+        }
+
+        createCave(new THREE.Vector3(440, getTerrainHeight(440, 440), 440));
+        createCave(new THREE.Vector3(570, getTerrainHeight(570, 570), 570));
+
+        // ============ AIR TERJUN (visual) ============
+        // Channel-nya udah "diukir" duluan di getTerrainHeight() - di sini tinggal bikin
+        // lembaran air yang jatuh ngikutin garis channel-nya, plus kolam & kabut di bawahnya.
+        function createWaterfall(topPos, bottomPos) {
+            const group = new THREE.Group();
+
+            // Basis rotasi custom: sumbu-Y lokal disejajarin ke arah jatuhnya air (top->bottom),
+            // sumbu-X lokal jadi lebar terjunan (horizontal, tegak lurus arah jatuh).
+            const dir3 = new THREE.Vector3().subVectors(bottomPos, topPos);
+            const fallLength = dir3.length();
+            const yAxis = dir3.clone().normalize();
+            let xAxis = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), yAxis);
+            if (xAxis.lengthSq() < 1e-6) xAxis.set(1, 0, 0);
+            xAxis.normalize();
+            const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+            const basis = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+            const quat = new THREE.Quaternion().setFromRotationMatrix(basis);
+
+            const waterTex = makeGlowTexture('rgba(235,248,255,0.95)', 'rgba(210,240,255,0.25)');
+            waterTex.wrapS = waterTex.wrapT = THREE.RepeatWrapping;
+            waterTex.repeat.set(1, 8);
+
+            const width = WATERFALL_HALF_WIDTH * 2;
+            const sheetGeo = new THREE.PlaneGeometry(width, fallLength, 1, 16);
+            const sheetMat = new THREE.MeshBasicMaterial({
+                map: waterTex, color: 0xcfeeff, transparent: true, opacity: 0.88,
+                side: THREE.DoubleSide, depthWrite: false
+            });
+            const sheet = new THREE.Mesh(sheetGeo, sheetMat);
+            sheet.quaternion.copy(quat);
+            group.add(sheet);
+
+            const mid = new THREE.Vector3().addVectors(topPos, bottomPos).multiplyScalar(0.5);
+            group.position.copy(mid);
+
+            // Kolam di bawah terjunan, pake sharedWaterMat yang sama kayak air di terrain
+            // biar shimmer-nya ikut ke-update otomatis bareng (lihat animate()).
+            const poolGeo = new THREE.CircleGeometry(WATERFALL_HALF_WIDTH * 3.5, 24);
+            poolGeo.rotateX(-Math.PI / 2);
+            const pool = new THREE.Mesh(poolGeo, sharedWaterMat);
+            pool.userData.sharedMaterial = true;
+            pool.position.set(bottomPos.x, WATERFALL_POOL_Y + 0.05, bottomPos.z);
+            scene.add(pool);
+
+            // Kabut/percikan di kolam bawah - dipakein tekstur glow yang sama kayak asap
+            // api unggun, cuma warnanya putih & animasinya beda (lihat animate()).
+            const mistTex = makeGlowTexture('rgba(255,255,255,0.7)', 'rgba(255,255,255,0)');
+            const mistSprites = [];
+            for (let i = 0; i < 10; i++) {
+                const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: mistTex, transparent: true, opacity: 0, depthWrite: false }));
+                spr.scale.setScalar(2.5 + Math.random() * 2);
+                spr.position.set(bottomPos.x + (Math.random() - 0.5) * 7, WATERFALL_POOL_Y + Math.random() * 1.5, bottomPos.z + (Math.random() - 0.5) * 7);
+                spr.userData.life = 0.3 + Math.random() * 3; // dijadwalin nyala gantian, bukan bareng semua
+                spr.userData.baseX = spr.position.x; spr.userData.baseZ = spr.position.z;
+                scene.add(spr);
+                mistSprites.push(spr);
+            }
+
+            scene.add(group);
+            return { sheet, waterTex, mistSprites, pool };
+        }
+
+        const waterfallInstance = createWaterfall(
+            new THREE.Vector3(WATERFALL_TOP.x, WATERFALL_TOP_Y, WATERFALL_TOP.z),
+            new THREE.Vector3(WATERFALL_BOTTOM.x, WATERFALL_POOL_Y, WATERFALL_BOTTOM.z)
+        );
+        createStoryWorld();
+        setStoryMission(1);
+
+        // ============ VILLAGE & NPC (Lebih Detail) ============
+        // NPC dimatiin sementara sesuai permintaan - tinggal balikin flag ini ke true
+        // buat ngaktifin lagi Raka & Sari (fungsi createNPC-nya tetep utuh di bawah).
+        const NPCS_ENABLED = false;
+        const villageGroup = new THREE.Group();
+        scene.add(villageGroup);
+        const npcs = [];
+
+        function createVillage() {
+            const villagePos = new THREE.Vector3(550, 0, 450);
+            villagePos.y = getTerrainHeight(villagePos.x, villagePos.z);
+
+            // Rumah-rumah ditata dua baris ngikutin arah jalan setapak yang nyambung ke
+            // desa (bukan grid acak), jadi keliatan kayak "jalan utama desa" beneran.
+            // roadDir = arah dari cabang jalan (550,460) ke pusat desa (550,450).
+            const roadDir = new THREE.Vector3(0, 0, -1);
+            const perpDir = new THREE.Vector3(1, 0, 0);
+            const housePositions = [];
+            const rowsPerSide = 6;
+            const spacing = 16;
+            const rowOffset = 11;
+            // Ada danau kecil di sisi barat desa - sebelum masukin posisi rumah, cek dulu
+            // ketinggian tanahnya beneran di atas air (bukan cuma nebak), coba geser makin
+            // jauh dari sumbu jalan kalau kena danau, dan kalau tetep gagal ya dilewatin
+            // aja (nggak maksa naruh rumah ngambang/tenggelam di air).
+            for (let row = 0; row < rowsPerSide; row++) {
+                const along = roadDir.clone().multiplyScalar((row - rowsPerSide / 2 + 0.5) * spacing);
+                for (const side of [1, -1]) {
+                    let placed = false;
+                    for (let extra = 0; extra <= 18; extra += 6) {
+                        const offset = along.clone().add(perpDir.clone().multiplyScalar((rowOffset + extra) * side));
+                        const testPos = villagePos.clone().add(offset);
+                        if (getTerrainHeight(testPos.x, testPos.z) > -0.3) {
+                            housePositions.push(offset);
+                            placed = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            const roofColors = [0x654321, 0x7a3b2e, 0x555a3a];
+            housePositions.forEach((offset, idx) => {
+                const house = new THREE.Group();
+                const housePos = villagePos.clone().add(offset);
+                housePos.y = getTerrainHeight(housePos.x, housePos.z);
+
+                const scale = 0.85 + (idx % 3) * 0.12;
+                const wallGeo = new THREE.BoxGeometry(6 * scale, 4 * scale, 6 * scale);
+                const wallMat = new THREE.MeshStandardMaterial({ color: 0x8B7355 });
+                const walls = new THREE.Mesh(wallGeo, wallMat);
+                walls.position.y = 2 * scale;
+                walls.castShadow = true;
+                house.add(walls);
+
+                const roofGeo = new THREE.ConeGeometry(4.5 * scale, 2 * scale, 4);
+                const roofMat = new THREE.MeshStandardMaterial({ color: roofColors[idx % roofColors.length] });
+                const roof = new THREE.Mesh(roofGeo, roofMat);
+                roof.position.y = 5 * scale;
+                roof.rotation.y = Math.PI / 4;
+                roof.castShadow = true;
+                house.add(roof);
+
+                // Door - selalu ngadep ke arah jalan (sumbu tengah desa)
+                const facingSign = offset.x >= 0 ? -1 : 1;
+                const doorGeo = new THREE.BoxGeometry(1.2 * scale, 2 * scale, 0.2);
+                const doorMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
+                const door = new THREE.Mesh(doorGeo, doorMat);
+                door.position.set(facingSign * 3 * scale, 1 * scale, 0);
+                door.rotation.y = Math.PI / 2;
+                house.add(door);
+
+                house.position.copy(housePos);
+                house.rotation.y = facingSign > 0 ? 0 : Math.PI;
+                villageGroup.add(house);
+            });
+
+            if (!NPCS_ENABLED) return;
+
+            const npcPos = villagePos.clone();
+            npcPos.y = getTerrainHeight(npcPos.x, npcPos.z);
+            createNPC(npcPos, "Raka", "Penyintas Helikopter", [
+                { text: "Halo! Saya Raka, anggota tim ekspedisi. Helikopter kita jatuh di utara.", action: null },
+                { text: "Ada drone militer yang berpatroli di area ini. Hati-hati!", action: null },
+                { text: "Saya dengar ada Drone Induk yang mengendalikan semuanya. Kalahkan dia!", action: 'quest_hint' }
+            ]);
+
+            const npc2Pos = villagePos.clone().add(new THREE.Vector3(8, 0, 8));
+            npc2Pos.y = getTerrainHeight(npc2Pos.x, npc2Pos.z);
+            createNPC(npc2Pos, "Sari", "Dokter Tim", [
+                { text: "Saya Sari, dokter tim ekspedisi. Persediaan medis kita hampir habis.", action: null },
+                { text: "Daging hewan bisa memulihkan HP dan lapar Anda. Buru rusa dan kelinci!", action: 'heal', healAmount: 30 },
+                { text: "Istirahat di gua atau dekat api unggun untuk memulihkan stamina.", action: null }
+            ]);
+        }
+        createVillage();
+
+        function createNPC(pos, name, role, dialogs) {
+            const npc = new THREE.Group();
+            
+            // Body lebih detail
+            const bodyGeo = new THREE.CapsuleGeometry(0.4, 1.2, 4, 8);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x4444ff });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+            body.position.y = 1.4;
+            body.castShadow = true;
+            npc.add(body);
+            
+            // Head
+            const headGeo = new THREE.SphereGeometry(0.35, 8, 8);
+            const headMat = new THREE.MeshStandardMaterial({ color: 0xffcc99 });
+            const head = new THREE.Mesh(headGeo, headMat);
+            head.position.y = 2.4;
+            head.castShadow = true;
+            npc.add(head);
+            
+            // Eyes
+            const eyeGeo = new THREE.SphereGeometry(0.05, 4, 4);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye1.position.set(-0.1, 2.45, 0.3);
+            npc.add(eye1);
+            const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+            eye2.position.set(0.1, 2.45, 0.3);
+            npc.add(eye2);
+            
+            // Arms
+            const armGeo = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 6);
+            const arm1 = new THREE.Mesh(armGeo, bodyMat);
+            arm1.position.set(-0.6, 1.8, 0);
+            arm1.rotation.z = 0.2;
+            npc.add(arm1);
+            const arm2 = new THREE.Mesh(armGeo, bodyMat);
+            arm2.position.set(0.6, 1.8, 0);
+            arm2.rotation.z = -0.2;
+            npc.add(arm2);
+            
+            // Legs
+            const legGeo = new THREE.CylinderGeometry(0.15, 0.1, 0.9, 6);
+            const leg1 = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            leg1.position.set(-0.2, 0.45, 0);
+            npc.add(leg1);
+            const leg2 = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+            leg2.position.set(0.2, 0.45, 0);
+            npc.add(leg2);
+            
+            npc.userData = { name, role, dialogs, currentDialog: 0 };
+            npc.position.copy(pos);
+            villageGroup.add(npc);
+            npcs.push(npc);
+        }
+
+        let currentNPC = null;
+        let currentDialogIndex = 0;
+
+        function interactWithNPC(npc) {
+            currentNPC = npc;
+            currentDialogIndex = 0;
+            showNPCDialog();
+        }
+
+        function showNPCDialog() {
+            if (!currentNPC) return;
+            const data = currentNPC.userData;
+            const dialog = data.dialogs[currentDialogIndex];
+            
+            document.getElementById('npc-name').innerText = `${data.name} - ${data.role}`;
+            document.getElementById('npc-text').innerText = dialog.text;
+            
+            const btn1 = document.getElementById('npc-btn-1');
+            const btn2 = document.getElementById('npc-btn-2');
+            
+            if (currentDialogIndex < data.dialogs.length - 1) {
+                btn1.innerText = "Lanjut ▶️";
+                btn1.onclick = () => { currentDialogIndex++; showNPCDialog(); };
+                btn2.innerText = "Tutup ✖️";
+                btn2.onclick = closeNPCDialog;
+            } else {
+                if (dialog.action === 'heal') {
+                    btn1.innerText = `🏥 Obati (+${dialog.healAmount} HP)`;
+                    btn1.onclick = () => {
+                        if (inventory.meat >= 1) {
+                            inventory.meat--;
+                            playerHealth = Math.min(MAX_HEALTH, playerHealth + dialog.healAmount);
+                            playerHunger = Math.min(MAX_HUNGER, playerHunger + 20);
+                            updateHealthUI();
+                            updateSurvivalUI();
+                            updateUI();
+                            SoundManager.play('eat');
+                            showNotification(`🏥 HP +${dialog.healAmount}!`);
+                            saveGame();
+                        } else {
+                            showNotification("❌ Butuh 1 daging!", true);
+                        }
+                        closeNPCDialog();
+                    };
+                } else if (dialog.action === 'quest_hint') {
+                    btn1.innerText = "Mengerti ";
+                    btn1.onclick = closeNPCDialog;
+                } else {
+                    btn1.innerText = "Tutup ✖️";
+                    btn1.onclick = closeNPCDialog;
+                }
+                btn2.innerText = "Ulangi 🔄";
+                btn2.onclick = () => { currentDialogIndex = 0; showNPCDialog(); };
+            }
+            
+            document.getElementById('npc-dialog').style.display = 'block';
+        }
+
+        function closeNPCDialog() {
+            document.getElementById('npc-dialog').style.display = 'none';
+            currentNPC = null;
+        }
+
+        // ============ BOSS: DRONE INDUK ============
+        let bossDrone = null;
+        let bossSpawned = false;
+
+        class BossDrone {
+            constructor(pos) {
+                this.group = new THREE.Group();
+                this.type = 'boss';
+                this.state = 'PATROL';
+                this.maxHp = 500;
+                this.hp = this.maxHp;
+                this.destroyed = false;
+                this.patrolRadius = 60;
+                this.patrolAngle = 0;
+                this.patrolSpeed = 0.2;
+                this.chaseSpeed = 6;
+                this.detectionRange = 40;
+                this.attackRange = 8;
+                this.damage = 20;
+                this.alertTimer = 0;
+                this.lastAttackTime = 0;
+                this.lostTargetTimer = 0;
+                this.homeSpawn = pos.clone();
+                this.homePosition = pos.clone();
+                
+                this.burning = false;
+                this.burnTimer = 0;
+                this.burnDamageTimer = 0;
+                this.burnParticles = [];
+                
+                this.hpBarEl = document.createElement('div');
+                this.hpBarEl.className = 'drone-hp-bar';
+                this.hpBarEl.style.width = '100px';
+                this.hpBarEl.style.height = '10px';
+                this.hpBarEl.innerHTML = '<div class="drone-hp-fill"></div>';
+                document.body.appendChild(this.hpBarEl);
+                
+                this.buildBossModel();
+                this.group.position.copy(pos);
+                this.group.position.y = getTerrainHeight(pos.x, pos.z) + 15;
+                scene.add(this.group);
+                
+                SoundManager.play('boss_roar');
+                showNotification("👹 DRONE INDUK MUNCUL!", true);
+            }
+
+            buildBossModel() {
+                const bodyGeo = new THREE.BoxGeometry(4, 1, 4);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.9, roughness: 0.2 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat);
+                body.castShadow = true;
+                this.group.add(body);
+
+                const armGeo = new THREE.CylinderGeometry(0.2, 0.2, 3, 8);
+                const armMat = new THREE.MeshStandardMaterial({ color: 0x111111 });
+                const armPositions = [[2.5, 0, 2.5], [-2.5, 0, 2.5], [2.5, 0, -2.5], [-2.5, 0, -2.5]];
+                this.rotors = [];
+                armPositions.forEach(pos => {
+                    const arm = new THREE.Mesh(armGeo, armMat);
+                    arm.rotation.z = Math.PI / 2;
+                    arm.position.set(pos[0]/2, 0, pos[2]/2);
+                    arm.castShadow = true;
+                    this.group.add(arm);
+                    
+                    const rotorGeo = new THREE.CylinderGeometry(1, 1, 0.1, 16);
+                    const rotorMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.7 });
+                    const rotor = new THREE.Mesh(rotorGeo, rotorMat);
+                    rotor.position.set(pos[0], 0.2, pos[2]);
+                    this.rotors.push(rotor);
+                    this.group.add(rotor);
+                });
+
+                const lightGeo = new THREE.SphereGeometry(0.5, 8, 8);
+                this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+                this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
+                this.indicator.position.set(0, -0.6, 0);
+                this.group.add(this.indicator);
+
+                this.spotlight = new THREE.SpotLight(0xff0000, 5, 50, Math.PI / 4, 0.5, 1);
+                this.spotlight.position.set(0, -1, 0);
+                this.spotlight.target.position.set(0, -20, 0);
+                this.spotlight.castShadow = true;
+                this.group.add(this.spotlight);
+                this.group.add(this.spotlight.target);
+
+                const beamGeo = new THREE.ConeGeometry(8, 30, 16, 1, true);
+                const beamMat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false });
+                this.beam = new THREE.Mesh(beamGeo, beamMat);
+                this.beam.position.set(0, -16, 0);
+                this.beam.rotation.x = Math.PI;
+                this.group.add(this.beam);
+            }
+
+            applyBurn(duration, damagePerSec) {
+                this.burning = true;
+                this.burnTimer = duration;
+                this.burnDamagePerSec = damagePerSec;
+                this.burnDamageTimer = 0;
+                SoundManager.play('burn');
+                showNotification(" Boss terbakar!");
+            }
+
+            takeDamage(amount) {
+                if (this.destroyed) return;
+                this.hp = Math.max(0, this.hp - amount);
+                SoundManager.play('hit');
+                this.updateBossHUD();
+                if (this.hp <= 0) this.destroyBoss();
+            }
+
+            destroyBoss() {
+                this.destroyed = true;
+                this.group.visible = false;
+                this.hpBarEl.style.display = 'none';
+                document.getElementById('boss-hud').style.display = 'none';
+                
+                this.burnParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); });
+                this.burnParticles = [];
+                this.burning = false;
+                
+                createBigExplosion(this.group.position.clone());
+                showNotification("🎉 BOSS DIKALAHKAN!", false);
+                
+                totalKills++;
+                bossDefeated = true;
+                quest.current++;
+                updateStoryProgress();
+                updateQuestUI();
+                updateKillCounter();
+                
+                if (quest.current >= quest.target) {
+                    quest.completed = true;
+                    showNotification(" MISI SELESAI! Anda menyelamatkan area!", false);
+                    playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA;
+                    playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                    updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                    saveGame();
+                }
+            }
+
+            updateBurn(delta) {
+                if (!this.burning || this.destroyed) return;
+                this.burnTimer -= delta;
+                this.burnDamageTimer += delta;
+                if (this.burnDamageTimer >= 1.0) {
+                    this.burnDamageTimer = 0;
+                    this.takeDamage(this.burnDamagePerSec);
+                }
+                if (Math.random() < 0.5) {
+                    const geo = new THREE.SphereGeometry(0.3, 6, 6);
+                    const mat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff4400 : 0xffaa00, transparent: true, opacity: 0.8 });
+                    const p = new THREE.Mesh(geo, mat);
+                    p.position.set(this.group.position.x + (Math.random() - 0.5) * 4, this.group.position.y + (Math.random() - 0.5) * 2, this.group.position.z + (Math.random() - 0.5) * 4);
+                    p.userData.life = 1; p.userData.vy = 2 + Math.random();
+                    scene.add(p);
+                    this.burnParticles.push(p);
+                }
+                for (let i = this.burnParticles.length - 1; i >= 0; i--) {
+                    const p = this.burnParticles[i];
+                    p.userData.life -= delta;
+                    if (p.userData.life <= 0) { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); this.burnParticles.splice(i, 1); }
+                    else { p.position.y += p.userData.vy * delta; p.material.opacity = p.userData.life; p.scale.setScalar(p.userData.life); }
+                }
+                if (this.burnTimer <= 0) {
+                    this.burning = false;
+                    this.burnParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); });
+                    this.burnParticles = [];
+                }
+            }
+
+            updateBossHUD() {
+                const bossHud = document.getElementById('boss-hud');
+                bossHud.style.display = 'block';
+                document.getElementById('boss-hp-text').innerText = `${Math.round(this.hp)}/${this.maxHp}`;
+                document.getElementById('boss-hp-bar').style.width = (this.hp / this.maxHp * 100) + '%';
+            }
+
+            update(delta, playerPos, timeOfDay) {
+                this.updateBurn(delta);
+                if (this.destroyed) return;
+
+                this.rotors.forEach(rotor => { rotor.rotation.y += delta * 20; });
+                const distToPlayer = this.group.position.distanceTo(playerPos);
+                const isNight = timeOfDay < 6 || timeOfDay > 19;
+
+                switch(this.state) {
+                    case 'PATROL':
+                        this.patrolAngle += this.patrolSpeed * delta;
+                        const targetX = this.homePosition.x + Math.cos(this.patrolAngle) * this.patrolRadius;
+                        const targetZ = this.homePosition.z + Math.sin(this.patrolAngle) * this.patrolRadius;
+                        const targetY = getTerrainHeight(targetX, targetZ) + 15;
+                        this.group.position.x += (targetX - this.group.position.x) * delta;
+                        this.group.position.z += (targetZ - this.group.position.z) * delta;
+                        this.group.position.y += (targetY - this.group.position.y) * delta;
+                        this.indicatorMat.color.setHex(0xff0000);
+                        this.spotlight.intensity = 3;
+
+                        const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
+                        if (distToPlayer < detectRange) {
+                            this.state = 'ALERT';
+                            this.alertTimer = 2;
+                            showNotification("⚠️ BOSS MENDETEKSI ANDA!", true);
+                        }
+                        break;
+                    case 'ALERT':
+                        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
+                        this.alertTimer -= delta;
+                        if (this.alertTimer <= 0) {
+                            this.state = 'CHASE';
+                            showNotification("🚨 BOSS MENGEJAR!", true);
+                            SoundManager.play('boss_roar');
+                        }
+                        break;
+                    case 'CHASE':
+                        const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        const chaseY = getTerrainHeight(playerPos.x, playerPos.z) + 10;
+                        this.group.position.x += dir.x * this.chaseSpeed * delta;
+                        this.group.position.z += dir.z * this.chaseSpeed * delta;
+                        this.group.position.y += (chaseY - this.group.position.y) * delta * 2;
+                        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
+                        if (distToPlayer < this.attackRange) this.state = 'ATTACK';
+                        if (distToPlayer > this.detectionRange * 3) {
+                            this.state = 'LOST';
+                            this.lostTargetTimer = 5;
+                        }
+                        break;
+                    case 'LOST':
+                        const dirHome = new THREE.Vector3().subVectors(this.homePosition, this.group.position).normalize();
+                        this.group.position.x += dirHome.x * 4 * delta;
+                        this.group.position.z += dirHome.z * 4 * delta;
+                        this.lostTargetTimer -= delta;
+                        if (this.lostTargetTimer <= 0) this.state = 'PATROL';
+                        break;
+                    case 'ATTACK':
+                        const now = performance.now();
+                        if (now - this.lastAttackTime > 1500) {
+                            this.lastAttackTime = now;
+                            takeDamage(this.damage);
+                            if (distToPlayer < 15) {
+                                takeDamage(10);
+                            }
+                        }
+                        const dirAttack = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        this.group.position.x += dirAttack.x * 3 * delta;
+                        this.group.position.z += dirAttack.z * 3 * delta;
+                        this.group.lookAt(playerPos.x, this.group.position.y, playerPos.z);
+                        if (distToPlayer > this.attackRange * 2) this.state = 'CHASE';
+                        break;
+                }
+                
+                this.updateBossHUD();
+            }
+        }
+
+        function createBigExplosion(position) {
+            for (let i = 0; i < 50; i++) {
+                const geo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+                const mat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff6600 : 0xffaa00 });
+                const p = new THREE.Mesh(geo, mat);
+                p.position.copy(position);
+                p.userData.velocity = new THREE.Vector3((Math.random() - 0.5) * 20, Math.random() * 15, (Math.random() - 0.5) * 20);
+                p.userData.life = 2;
+                scene.add(p);
+                const animateP = () => {
+                    if (p.userData.life > 0) {
+                        p.userData.life -= 0.016;
+                        p.userData.velocity.y -= 9.8 * 0.016;
+                        p.position.add(p.userData.velocity.clone().multiplyScalar(0.016));
+                        p.material.opacity = p.userData.life / 2;
+                        p.material.transparent = true;
+                        requestAnimationFrame(animateP);
+                    } else {
+                        scene.remove(p);
+                        p.geometry.dispose();
+                        p.material.dispose();
+                    }
+                };
+                animateP();
+            }
+        }
+
+        function checkBossSpawn() {
+            if (storyLevel >= 18 && !bossSpawned && totalKills >= 3 && !bossDefeated) {
+                bossSpawned = true;
+                const bossPos = new THREE.Vector3(500, 0, 500);
+                bossPos.y = getTerrainHeight(500, 500);
+                bossDrone = new BossDrone(bossPos);
+            }
+        }
+
+        // ============ RAYCASTER ============
+        const raycaster = new THREE.Raycaster();
+        raycaster.far = 100;
+        const center = new THREE.Vector2(0, 0);
+        let targetInstanceId = null;
+        let targetAnimal = null;
+        let targetNPC = null;
+
+        // ============ CAMPFIRE SYSTEM ============
+        const campfireGroup = new THREE.Group();
+        scene.add(campfireGroup);
+        const campfireSmokeTexture = makeGlowTexture('rgba(200,200,200,0.55)', 'rgba(200,200,200,0)');
+
+        // ============ KUNANG-KUNANG MALAM (atmosfer) ============
+        // Ngikutin posisi kamera (cuma x/z) kayak skyGroup, tiap kunang-kunang punya offset &
+        // goyangan sendiri di sekitar situ, jadi kesannya selalu ada di sekeliling pemain
+        // kemanapun jalan, dan cuma keliatan pas malam (opacity-nya ikut nightFade).
+        const fireflyGroup = new THREE.Group();
+        scene.add(fireflyGroup);
+        const fireflyTexture = makeGlowTexture('rgba(255,255,150,1)', 'rgba(255,240,80,0)');
+        const fireflies = [];
+        for (let i = 0; i < 35; i++) {
+            const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: fireflyTexture, transparent: true, opacity: 0, depthWrite: false, fog: false }));
+            spr.scale.set(0.5, 0.5, 1);
+            spr.userData.offset = new THREE.Vector3((Math.random() - 0.5) * 60, 0.6 + Math.random() * 2.5, (Math.random() - 0.5) * 60);
+            spr.userData.phase = Math.random() * Math.PI * 2;
+            spr.userData.speed = 0.3 + Math.random() * 0.4;
+            fireflyGroup.add(spr);
+            fireflies.push(spr);
+        }
+        let campfirePreview = null;
+
+        function createCampfireMesh(isPreview = false) {
+            const group = new THREE.Group();
+            if (isPreview) {
+                const sphereGeo = new THREE.SphereGeometry(1.5, 16, 16);
+                const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.4, depthWrite: false, side: THREE.DoubleSide });
+                const sphere = new THREE.Mesh(sphereGeo, sphereMat);
+                sphere.position.y = 1; sphere.name = 'previewSphere';
+                group.add(sphere);
+                const ringGeo = new THREE.RingGeometry(1.2, 1.5, 32);
+                const ringMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false });
+                const ring = new THREE.Mesh(ringGeo, ringMat);
+                ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; ring.name = 'previewRing';
+                group.add(ring);
+            } else {
+                const logGeo = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+                const logMat = new THREE.MeshStandardMaterial({ color: 0x4a3018 });
+                for(let i=0; i<4; i++) {
+                    const log = new THREE.Mesh(logGeo, logMat);
+                    log.rotation.z = Math.PI / 2; log.rotation.y = (i / 4) * Math.PI;
+                    log.castShadow = true; log.receiveShadow = true;
+                    group.add(log);
+                }
+                const stoneGeoLocal = new THREE.DodecahedronGeometry(0.2);
+                const stoneMatLocal = new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true });
+                for(let i=0; i<8; i++) {
+                    const stone = new THREE.Mesh(stoneGeoLocal, stoneMatLocal);
+                    const angle = (i / 8) * Math.PI * 2;
+                    stone.position.set(Math.cos(angle)*0.6, 0, Math.sin(angle)*0.6);
+                    stone.castShadow = true;
+                    group.add(stone);
+                }
+                const fireGeo = new THREE.ConeGeometry(0.3, 0.8, 8);
+                const fireMat = new THREE.MeshBasicMaterial({ color: 0xff6600, transparent: true, opacity: 0.8 });
+                const fire = new THREE.Mesh(fireGeo, fireMat);
+                fire.position.y = 0.4; fire.name = 'fireMesh';
+                group.add(fire);
+                // Inti api yang lebih terang/kekuningan di dalam nyala oranye luar - dulu cuma
+                // satu kerucut polos, jadi kurang "hidup".
+                const fireInnerGeo = new THREE.ConeGeometry(0.14, 0.5, 8);
+                const fireInnerMat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.9 });
+                const fireInner = new THREE.Mesh(fireInnerGeo, fireInnerMat);
+                fireInner.position.y = 0.55; fireInner.name = 'fireMeshInner';
+                group.add(fireInner);
+                const light = new THREE.PointLight(0xffaa00, 2, 15);
+                light.position.y = 0.5; light.castShadow = true;
+                group.add(light);
+
+                // Asap ngepul terus-terusan (dulu cuma ada partikel pas kena "burn" musuh, api
+                // unggun pemain sendiri nggak pernah ngeluarin asap sama sekali).
+                const smokeSprites = [];
+                for (let i = 0; i < 5; i++) {
+                    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: campfireSmokeTexture, transparent: true, opacity: 0, depthWrite: false }));
+                    spr.scale.set(0.4, 0.4, 1);
+                    spr.userData.life = 0;
+                    group.add(spr);
+                    smokeSprites.push(spr);
+                }
+                group.userData.smoke = smokeSprites;
+                group.userData.smokeTimer = Math.random();
+            }
+            return group;
+        }
+
+        function setPreviewColor(isValid) {
+            if (!campfirePreview) return;
+            const color = isValid ? 0x00ff00 : 0xff0000;
+            campfirePreview.traverse((child) => {
+                if (child.name === 'previewSphere' || child.name === 'previewRing') child.material.color.setHex(color);
+            });
+            const statusEl = document.getElementById('placement-status');
+            if (isValid) { statusEl.innerText = '✓ VALID - Tekan F'; statusEl.style.color = '#00ff00'; }
+            else { statusEl.innerText = '✗ INVALID'; statusEl.style.color = '#ff0000'; }
+        }
+
+        function startPlacementMode() {
+            if (isPlacingCampfire) return;
+            isPlacingCampfire = true;
+            campfirePreview = createCampfireMesh(true);
+            scene.add(campfirePreview);
+            const promptUI = document.getElementById('interaction-prompt');
+            promptUI.innerHTML = '<span style="color:#00ff00">[F]</span> Letakkan<br><span style="font-size:14px; color:#aaa">[X] Batal</span>';
+            promptUI.style.display = 'block';
+            document.getElementById('placement-status').style.display = 'block';
+        }
+
+        function cancelPlacement() {
+            if (!isPlacingCampfire) return;
+            if (campfirePreview) { scene.remove(campfirePreview); campfirePreview = null; }
+            isPlacingCampfire = false;
+            document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
+        }
+
+        function placeCampfire() {
+            if (!campfirePreview || !placementValid) {
+                showNotification("❌ Posisi tidak valid!", true);
+                return;
+            }
+            if ((inventory.wood || 0) < 5) {
+                showNotification("❌ Butuh 5 kayu!", true);
+                cancelPlacement();
+                return;
+            }
+            inventory.wood -= 5;
+            updateUI();
+            const pos = campfirePreview.position.clone();
+            const campfire = createCampfireMesh(false);
+            campfire.position.copy(pos);
+            campfireGroup.add(campfire);
+            campfires.push({ x: pos.x, y: pos.y, z: pos.z });
+            scene.remove(campfirePreview);
+            campfirePreview = null;
+            isPlacingCampfire = false;
+            document.getElementById('interaction-prompt').style.display = 'none';
+            document.getElementById('placement-status').style.display = 'none';
+            showNotification("🔥 Api Unggun Dibangun!");
+            SoundManager.play('craft');
+            saveGame();
+        }
+
+        // ============ PROJECTILE SYSTEM ============
+        const projectiles = [];
+        
+        class Projectile {
+            constructor(type, startPos, direction) {
+                this.type = type;
+                this.alive = true;
+                this.age = 0;
+                this.isFire = (type === 'fire_arrow');
+                
+                if (type === 'arrow' || type === 'fire_arrow') {
+                    this.maxAge = 4;
+                    const geo = new THREE.CylinderGeometry(0.05, 0.05, 0.8, 6);
+                    const mat = new THREE.MeshStandardMaterial({ 
+                        color: type === 'fire_arrow' ? 0xff4400 : 0x8b4513,
+                        emissive: type === 'fire_arrow' ? 0xff2200 : 0x000000,
+                        emissiveIntensity: type === 'fire_arrow' ? 0.5 : 0
+                    });
+                    this.mesh = new THREE.Mesh(geo, mat);
+                    const tipGeo = new THREE.ConeGeometry(0.1, 0.2, 6);
+                    const tipMat = new THREE.MeshStandardMaterial({ 
+                        color: 0xaaaaaa, metalness: 0.8,
+                        emissive: type === 'fire_arrow' ? 0xff4400 : 0x000000,
+                        emissiveIntensity: type === 'fire_arrow' ? 0.8 : 0
+                    });
+                    const tip = new THREE.Mesh(tipGeo, tipMat);
+                    tip.position.y = 0.5;
+                    this.mesh.add(tip);
+                    if (type === 'fire_arrow') {
+                        this.trailParticles = [];
+                        this.trailTimer = 0;
+                        const fireLight = new THREE.PointLight(0xff4400, 1, 5);
+                        fireLight.position.y = 0.5;
+                        this.mesh.add(fireLight);
+                        this.fireLight = fireLight;
+                    }
+                    this.damage = type === 'fire_arrow' ? 15 : 25;
+                    this.burnDamage = type === 'fire_arrow' ? 5 : 0;
+                    this.burnDuration = type === 'fire_arrow' ? 3 : 0;
+                    this.speed = 50;
+                    this.gravity = 9.8;
+                } else {
+                    this.maxAge = 2;
+                    const geo = new THREE.DodecahedronGeometry(0.2, 0);
+                    const mat = new THREE.MeshStandardMaterial({ color: 0x888888, flatShading: true });
+                    this.mesh = new THREE.Mesh(geo, mat);
+                    this.damage = 10;
+                    this.burnDamage = 0;
+                    this.burnDuration = 0;
+                    this.speed = 25;
+                    this.gravity = 15;
+                }
+                this.mesh.position.copy(startPos);
+                this.mesh.castShadow = true;
+                this.velocity = direction.clone().multiplyScalar(this.speed);
+                this.velocity.y += 5;
+                scene.add(this.mesh);
+            }
+            update(delta) {
+                if (!this.alive) return;
+                this.age += delta;
+                if (this.age > this.maxAge) { this.destroy(); return; }
+                this.velocity.y -= this.gravity * delta;
+                const moveVec = this.velocity.clone().multiplyScalar(delta);
+                this.mesh.position.add(moveVec);
+                if (this.isFire) {
+                    this.trailTimer += delta;
+                    if (this.trailTimer > 0.03) {
+                        this.trailTimer = 0;
+                        this.createTrailParticle();
+                    }
+                    for (let i = this.trailParticles.length - 1; i >= 0; i--) {
+                        const p = this.trailParticles[i];
+                        p.life -= delta;
+                        if (p.life <= 0) { scene.remove(p.mesh); this.trailParticles.splice(i, 1); }
+                        else { p.mesh.position.y += delta * 1.5; p.mesh.scale.setScalar(p.life / p.maxLife); p.mesh.material.opacity = p.life / p.maxLife; }
+                    }
+                    if (this.fireLight) this.fireLight.intensity = 0.8 + Math.random() * 0.4;
+                }
+                if (this.mesh.position.y < getTerrainHeight(this.mesh.position.x, this.mesh.position.z) + 0.2 || this.mesh.position.y < -1.5) {
+                    this.destroy();
+                }
+            }
+            createTrailParticle() {
+                const geo = new THREE.SphereGeometry(0.15, 6, 6);
+                const mat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff6600 : 0xffaa00, transparent: true, opacity: 0.8 });
+                const p = new THREE.Mesh(geo, mat);
+                p.position.copy(this.mesh.position);
+                scene.add(p);
+                this.trailParticles.push({ mesh: p, life: 0.5, maxLife: 0.5 });
+            }
+            checkHit(targets) {
+                if (!this.alive) return null;
+                for (const target of targets) {
+                    // BUG UTAMA: drone/boss nggak punya properti "alive" sama sekali (cuma
+                    // Animal yang punya), jadi "!target.alive" itu SELALU true buat mereka
+                    // (undefined dibalik jadi true) - artinya panah/batu/panah-api nggak
+                    // PERNAH bisa kena drone atau boss sama sekali, cuma bisa kena hewan.
+                    // Sekarang cuma di-skip kalau emang eksplisit destroyed/alive===false.
+                    if (target.destroyed) continue;
+                    if (target.alive === false) continue;
+                    const dist = this.mesh.position.distanceTo(target.group.position);
+                    const hitDist = target.type === 'boss' ? 3 : (target.type === 'deer' || target.type === 'rabbit' ? 1.5 : 1.8);
+                    if (dist < hitDist) return target;
+                }
+                return null;
+            }
+            destroy() {
+                if (!this.alive) return;
+                this.alive = false;
+                scene.remove(this.mesh);
+                if (this.trailParticles) this.trailParticles.forEach(p => scene.remove(p.mesh));
+            }
+        }
+
+        function shootWeapon() {
+            if (!controls.isLocked || isPaused) return;
+            if (currentWeapon === 'arrow') {
+                if (inventory.arrows <= 0) { showNotification("❌ Panah habis!", true); return; }
+                inventory.arrows--;
+                SoundManager.play('shoot_arrow');
+            } else if (currentWeapon === 'fire_arrow') {
+                if (inventory.fire_arrows <= 0) { showNotification("🔥 Panah api habis!", true); return; }
+                inventory.fire_arrows--;
+                SoundManager.play('shoot_fire');
+            } else if (currentWeapon === 'stone') {
+                if (inventory.stones <= 0) { showNotification("❌ Batu habis!", true); return; }
+                inventory.stones--;
+                SoundManager.play('shoot_stone');
+            } else {
+                showNotification("⚠️ Pilih senjata (1/2/3)", true); return;
+            }
+            updateUI();
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            const startPos = camera.position.clone().add(dir.clone().multiplyScalar(1));
+            projectiles.push(new Projectile(currentWeapon, startPos, dir));
+            saveGame();
+        }
+
+        // ============ DRONE ENEMY SYSTEM ============
+        class PatrolDrone {
+            constructor(spawnPos, patrolRadius = 40) {
+                this.group = new THREE.Group();
+                this.type = 'drone';
+                this.state = 'PATROL';
+                this.patrolRadius = patrolRadius;
+                this.patrolAngle = Math.random() * Math.PI * 2;
+                this.patrolSpeed = 0.3;
+                this.chaseSpeed = 5;
+                this.detectionRange = 25;
+                this.attackRange = 4;
+                this.damage = 10;
+                this.alertTimer = 0;
+                this.lastAttackTime = 0;
+                this.lostTargetTimer = 0;
+                this.maxHp = 100;
+                this.hp = this.maxHp;
+                this.destroyed = false;
+                this.respawnTimer = 0;
+                this.homeSpawn = spawnPos.clone();
+                this.burning = false;
+                this.burnTimer = 0;
+                this.burnDamageTimer = 0;
+                this.burnParticles = [];
+                this.hpBarEl = document.createElement('div');
+                this.hpBarEl.className = 'drone-hp-bar';
+                this.hpBarEl.innerHTML = '<div class="drone-hp-fill"></div>';
+                document.body.appendChild(this.hpBarEl);
+                this.burnBarEl = document.createElement('div');
+                this.burnBarEl.className = 'drone-burn-indicator';
+                this.burnBarEl.innerHTML = '<div class="drone-burn-fill"></div>';
+                document.body.appendChild(this.burnBarEl);
+                this.buildDroneModel();
+                this.group.position.copy(spawnPos);
+                this.group.position.y = getTerrainHeight(spawnPos.x, spawnPos.z) + 8;
+                this.homePosition = this.group.position.clone();
+                scene.add(this.group);
+            }
+            buildDroneModel() {
+                const bodyGeo = new THREE.BoxGeometry(1.5, 0.4, 1.5);
+                const bodyMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.8, roughness: 0.3 });
+                const body = new THREE.Mesh(bodyGeo, bodyMat); body.castShadow = true; this.group.add(body);
+                const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.5, 8);
+                const armMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
+                const armPositions = [[0.9, 0, 0.9], [-0.9, 0, 0.9], [0.9, 0, -0.9], [-0.9, 0, -0.9]];
+                this.rotors = [];
+                armPositions.forEach(pos => {
+                    const arm = new THREE.Mesh(armGeo, armMat);
+                    arm.rotation.z = Math.PI / 2;
+                    arm.position.set(pos[0]/2, 0, pos[2]/2);
+                    arm.castShadow = true;
+                    this.group.add(arm);
+                    const rotorGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.05, 16);
+                    const rotorMat = new THREE.MeshBasicMaterial({ color: 0x666666, transparent: true, opacity: 0.5 });
+                    const rotor = new THREE.Mesh(rotorGeo, rotorMat);
+                    rotor.position.set(pos[0], 0.1, pos[2]);
+                    this.rotors.push(rotor); this.group.add(rotor);
+                });
+                const lightGeo = new THREE.SphereGeometry(0.15, 8, 8);
+                this.indicatorMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+                this.indicator = new THREE.Mesh(lightGeo, this.indicatorMat);
+                this.indicator.position.set(0, -0.25, 0); this.group.add(this.indicator);
+                this.spotlight = new THREE.SpotLight(0xffffaa, 2, 30, Math.PI / 6, 0.5, 1);
+                this.spotlight.position.set(0, -0.3, 0); this.spotlight.target.position.set(0, -10, 0);
+                this.group.add(this.spotlight); this.group.add(this.spotlight.target);
+                const beamGeo = new THREE.ConeGeometry(4, 15, 16, 1, true);
+                const beamMat = new THREE.MeshBasicMaterial({ color: 0xffffaa, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false });
+                this.beam = new THREE.Mesh(beamGeo, beamMat);
+                this.beam.position.set(0, -8, 0); this.beam.rotation.x = Math.PI; this.group.add(this.beam);
+            }
+            applyBurn(duration, damagePerSec) {
+                this.burning = true;
+                this.burnTimer = duration;
+                this.burnDamagePerSec = damagePerSec;
+                this.burnDamageTimer = 0;
+                SoundManager.play('burn');
+                showNotification("🔥 Drone terbakar!");
+            }
+            takeDamage(amount) {
+                if (this.destroyed) return;
+                this.hp = Math.max(0, this.hp - amount);
+                SoundManager.play('hit');
+                this.hpBarEl.style.display = 'block';
+                if (this.hp <= 0) this.destroyDrone();
+            }
+            destroyDrone() {
+                this.destroyed = true;
+                this.respawnTimer = 60;
+                this.group.visible = false;
+                this.hpBarEl.style.display = 'none';
+                this.burnBarEl.style.display = 'none';
+                this.burnParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); });
+                this.burnParticles = [];
+                this.burning = false;
+                this.burnTimer = 0;
+                showNotification("💥 DRONE HANCUR!");
+                if (storyLevel >= 17 && quest.active && quest.type === 'destroy_all' && !quest.completed && !bossDefeated) {
+                    quest.current++;
+                    totalKills++;
+                    updateQuestUI();
+                    updateKillCounter();
+                    checkBossSpawn();
+                    if (quest.current >= quest.target) {
+                        quest.completed = true;
+                        showNotification("🏆 MISI SELESAI!", false);
+                        playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA;
+                        playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                        updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                        saveGame();
+                    }
+                }
+            }
+            updateBurn(delta) {
+                if (!this.burning || this.destroyed) return;
+                this.burnTimer -= delta;
+                this.burnDamageTimer += delta;
+                if (this.burnDamageTimer >= 1.0) { this.burnDamageTimer = 0; this.takeDamage(this.burnDamagePerSec); }
+                if (Math.random() < 0.3) {
+                    const geo = new THREE.SphereGeometry(0.15, 6, 6);
+                    const mat = new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0xff4400 : 0xffaa00, transparent: true, opacity: 0.8 });
+                    const p = new THREE.Mesh(geo, mat);
+                    p.position.set(this.group.position.x + (Math.random() - 0.5) * 2, this.group.position.y + (Math.random() - 0.5) * 1, this.group.position.z + (Math.random() - 0.5) * 2);
+                    p.userData.life = 0.8; p.userData.vy = 1 + Math.random();
+                    scene.add(p);
+                    this.burnParticles.push(p);
+                }
+                for (let i = this.burnParticles.length - 1; i >= 0; i--) {
+                    const p = this.burnParticles[i];
+                    p.userData.life -= delta;
+                    if (p.userData.life <= 0) { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); this.burnParticles.splice(i, 1); }
+                    else { p.position.y += p.userData.vy * delta; p.material.opacity = p.userData.life / 0.8; p.scale.setScalar(p.userData.life / 0.8); }
+                }
+                this.burnBarEl.style.display = 'block';
+                this.burnBarEl.querySelector('.drone-burn-fill').style.width = (this.burnTimer / 3 * 100) + '%';
+                if (this.burnTimer <= 0) {
+                    this.burning = false;
+                    this.burnBarEl.style.display = 'none';
+                    this.burnParticles.forEach(p => { scene.remove(p); if (p.geometry) p.geometry.dispose(); if (p.material) p.material.dispose(); });
+                    this.burnParticles = [];
+                }
+            }
+            update(delta, playerPos, timeOfDay) {
+                this.updateBurn(delta);
+                if (this.destroyed) {
+                    this.respawnTimer -= delta;
+                    if (this.respawnTimer <= 0) {
+                        this.destroyed = false; this.hp = this.maxHp;
+                        this.group.position.copy(this.homeSpawn);
+                        this.group.position.y = getTerrainHeight(this.homeSpawn.x, this.homeSpawn.z) + 8;
+                        this.homePosition = this.group.position.clone();
+                        this.group.visible = true; this.state = 'PATROL';
+                        this.burning = false;
+                        this.burnParticles.forEach(p => scene.remove(p));
+                        this.burnParticles = [];
+                    }
+                    return;
+                }
+                this.rotors.forEach(rotor => { rotor.rotation.y += delta * 30; });
+                const distToPlayer = this.group.position.distanceTo(playerPos);
+                const isNight = timeOfDay < 6 || timeOfDay > 19;
+                switch(this.state) {
+                    case 'PATROL':
+                        this.patrolAngle += this.patrolSpeed * delta;
+                        const targetX = this.homePosition.x + Math.cos(this.patrolAngle) * this.patrolRadius;
+                        const targetZ = this.homePosition.z + Math.sin(this.patrolAngle) * this.patrolRadius;
+                        const targetY = getTerrainHeight(targetX, targetZ) + 8;
+                        this.group.position.x += (targetX - this.group.position.x) * delta;
+                        this.group.position.z += (targetZ - this.group.position.z) * delta;
+                        this.group.position.y += (targetY - this.group.position.y) * delta;
+                        this.indicatorMat.color.setHex(0x00ff00);
+                        const detectRange = isNight ? this.detectionRange * 1.5 : this.detectionRange;
+                        if (distToPlayer < detectRange) { this.state = 'ALERT'; this.alertTimer = 1.5; showNotification("⚠️ Drone mendeteksi!", true); }
+                        break;
+                    case 'ALERT':
+                        this.indicatorMat.color.setHex(0xffff00);
+                        this.alertTimer -= delta;
+                        if (this.alertTimer <= 0) { this.state = 'CHASE'; showNotification("🚨 DRONE MENGEJAR!", true); }
+                        break;
+                    case 'CHASE':
+                        const dir = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        const chaseY = getTerrainHeight(playerPos.x, playerPos.z) + 5;
+                        this.group.position.x += dir.x * this.chaseSpeed * delta;
+                        this.group.position.z += dir.z * this.chaseSpeed * delta;
+                        this.group.position.y += (chaseY - this.group.position.y) * delta * 2;
+                        this.indicatorMat.color.setHex(0xff0000);
+                        if (distToPlayer < this.attackRange) this.state = 'ATTACK';
+                        if (distToPlayer > this.detectionRange * 2.5) { this.state = 'LOST'; this.lostTargetTimer = 3; }
+                        break;
+                    case 'LOST':
+                        const dirHome = new THREE.Vector3().subVectors(this.homePosition, this.group.position).normalize();
+                        this.group.position.x += dirHome.x * 3 * delta; this.group.position.z += dirHome.z * 3 * delta;
+                        this.indicatorMat.color.setHex(0xffaa00);
+                        this.lostTargetTimer -= delta;
+                        if (this.lostTargetTimer <= 0) this.state = 'PATROL';
+                        break;
+                    case 'ATTACK':
+                        const now = performance.now();
+                        if (now - this.lastAttackTime > 1000) { this.lastAttackTime = now; takeDamage(this.damage); }
+                        const dirAttack = new THREE.Vector3().subVectors(playerPos, this.group.position).normalize();
+                        this.group.position.x += dirAttack.x * 2 * delta; this.group.position.z += dirAttack.z * 2 * delta;
+                        if (distToPlayer > this.attackRange * 1.5) this.state = 'CHASE';
+                        break;
+                }
+                if (this.hp < this.maxHp && !this.destroyed) {
+                    const screenPos = this.group.position.clone(); screenPos.y += 2; screenPos.project(camera);
+                    const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                    const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                    if (screenPos.z < 1) {
+                        this.hpBarEl.style.display = 'block'; this.hpBarEl.style.left = (x - 30) + 'px'; this.hpBarEl.style.top = y + 'px';
+                        this.hpBarEl.querySelector('.drone-hp-fill').style.width = (this.hp / this.maxHp * 100) + '%';
+                        this.burnBarEl.style.left = (x - 30) + 'px'; this.burnBarEl.style.top = (y + 10) + 'px';
+                    } else { this.hpBarEl.style.display = 'none'; this.burnBarEl.style.display = 'none'; }
+                }
+            }
+        }
+
+        function takeDamage(amount) {
+            playerHealth = Math.max(0, playerHealth - amount);
+            updateHealthUI();
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = 1;
+            setTimeout(() => { overlay.style.opacity = 0; }, 300);
+            showNotification(` -${amount} HP!`, true);
+            if (playerHealth <= 0) gameOver();
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            try { controls.unlock(); } catch(e) {}
+            const blocker = document.getElementById('blocker');
+            blocker.innerHTML = `<h1 style="color: #ff0000;">☠️ GAME OVER</h1><p>Anda telah meninggal.</p><p style="color: #ff4444;">Drone: ${totalKills} | Hewan: ${totalAnimals}</p><p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK RESPAWN ]</p>`;
+            blocker.style.display = 'flex';
+        }
+
+        function updateHealthUI() { document.getElementById('health-text').innerText = Math.round(playerHealth); document.getElementById('health-bar').style.width = (playerHealth / MAX_HEALTH * 100) + '%'; }
+        function updateStaminaUI() { document.getElementById('stamina-text').innerText = Math.round(playerStamina); document.getElementById('stamina-bar').style.width = (playerStamina / MAX_STAMINA * 100) + '%'; }
+        function updateSurvivalUI() {
+            document.getElementById('hunger-text').innerText = Math.round(playerHunger);
+            document.getElementById('hunger-bar').style.width = (playerHunger / MAX_HUNGER * 100) + '%';
+            document.getElementById('thirst-text').innerText = Math.round(playerThirst);
+            document.getElementById('thirst-bar').style.width = (playerThirst / MAX_THIRST * 100) + '%';
+        }
+        function updateQuestUI() {
+            document.getElementById('quest-title').innerText = quest.title;
+            document.getElementById('quest-desc').innerText = quest.description;
+            const progressEl = document.getElementById('quest-progress');
+            if (quest.completed) { progressEl.innerText = "✅ SELESAI"; progressEl.style.color = "#00ff00"; }
+            else { progressEl.innerText = `${quest.current} / ${quest.target}`; progressEl.style.color = "#ffff00"; }
+        }
+        function updateKillCounter() {
+            document.getElementById('kill-count').innerText = totalKills;
+            document.getElementById('kill-display').innerText = totalKills;
+            if (totalKills > 0) document.getElementById('kill-counter').style.display = 'block';
+        }
+        function updateAnimalCounter() {
+            document.getElementById('animal-count').innerText = totalAnimals;
+        }
+
+        function checkNearCampfire() {
+            let near = false;
+            campfires.forEach(cf => {
+                if (camera.position.distanceTo(new THREE.Vector3(cf.x, cf.y, cf.z)) < CAMPFIRE_RADIUS) near = true;
+            });
+            isNearCampfire = near;
+        }
+
+        function checkNearCave() {
+            let near = false;
+            caves.forEach(cave => {
+                if (camera.position.distanceTo(cave.position) < cave.radius) near = true;
+            });
+            isNearCave = near;
+            const bonusEl = document.getElementById('campfire-bonus');
+            if (isNearCave) {
+                bonusEl.innerText = "🏔️ Gua\nStatus Pulih";
+                bonusEl.style.display = 'block';
+            } else if (isNearCampfire) {
+                bonusEl.innerText = "🔥 Istirahat\nStatus Pulih";
+                bonusEl.style.display = 'block';
+            } else {
+                bonusEl.style.display = 'none';
+            }
+        }
+
+        const drones = [];
+        drones.push(new PatrolDrone(new THREE.Vector3(530, 0, 530), 35));
+        drones.push(new PatrolDrone(new THREE.Vector3(460, 0, 480), 30));
+        drones.push(new PatrolDrone(new THREE.Vector3(560, 0, 540), 30));
+
+        // ============ STORY / THE CRASH ============
+        const storyPoints = { crash:{x:500,z:500}, lake:{x:525,z:430}, village:{x:550,z:450}, caveWest:{x:440,z:440}, caveEast:{x:570,z:570}, waterfall:{x:670,z:330}, mountain:{x:650,z:260}, desert:{x:760,z:520}, bunker:{x:700,z:520}, extraction:{x:470,z:300} };
+        let crashSiteGroup = null;
+        let wreckageGroup = null;
+        let storyLastHint = 0;
+
+        function makeWreckage(pos, label, scale=1) {
+            const g = new THREE.Group();
+            const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(2.2*scale,2.8*scale,10*scale,10), new THREE.MeshStandardMaterial({color:0x555b61,roughness:.8,metalness:.65}));
+            fuselage.rotation.z=Math.PI/2; fuselage.rotation.y=.35; fuselage.position.y=2.2*scale; g.add(fuselage);
+            const wing = new THREE.Mesh(new THREE.BoxGeometry(13*scale,.25*scale,2*scale), new THREE.MeshStandardMaterial({color:0x34383c,metalness:.6})); wing.rotation.y=.35; wing.position.y=2.8*scale; g.add(wing);
+            const fire = new THREE.PointLight(0xff6611,2.5,18); fire.position.y=3*scale; g.add(fire);
+            const beacon = new THREE.Mesh(new THREE.SphereGeometry(.35*scale,8,8),new THREE.MeshBasicMaterial({color:0xff2200})); beacon.position.set(0,4*scale,0); g.add(beacon);
+            const y=getTerrainHeight(pos.x,pos.z); g.position.set(pos.x,y,pos.z); scene.add(g);
+            return g;
+        }
+        function createStoryWorld() {
+            crashSiteGroup=makeWreckage(new THREE.Vector3(storyPoints.crash.x,0,storyPoints.crash.z),'CRASH',1);
+            wreckageGroup=makeWreckage(new THREE.Vector3(storyPoints.lake.x,0,storyPoints.lake.z),'WRECKAGE',.7);
+            const flare=new THREE.PointLight(0xffaa33,3,20); flare.position.set(storyPoints.extraction.x,getTerrainHeight(storyPoints.extraction.x,storyPoints.extraction.z)+3,storyPoints.extraction.z); scene.add(flare);
+        }
+        function distanceToPoint(pt){ return Math.hypot(camera.position.x-pt.x,camera.position.z-pt.z); }
+        function setStoryMission(level, completed=false) {
+            const m=STORY_MISSIONS[level-1]; if(!m)return; storyLevel=level;
+            quest={active:true,title:`Level ${level}: ${m[0]}`,description:m[1],type:'story',target:1,current:completed?1:0,completed:completed};
+            document.getElementById('story-level').innerText=level; updateQuestUI();
+        }
+        function showStory(title,text,objective){
+            storyOverlayOpen=true; document.getElementById('story-title').innerText=title; document.getElementById('story-text').innerText=text; document.getElementById('story-objective').innerText='🎯 '+objective; document.getElementById('story-overlay').style.display='flex';
+        }
+        function closeStory(){storyOverlayOpen=false;document.getElementById('story-overlay').style.display='none';try{controls.lock();}catch(e){}}
+        document.getElementById('story-close').onclick=closeStory;
+        function advanceStory(reason){
+            if(storyLevel>=20){ showStory('EXTRACTION','Helikopter muncul di balik kabut. Kamu akhirnya keluar dari wilayah terlarang. Namun dari udara terlihat puluhan bangkai pesawat lain.','WILDLANDS: THE CRASH — TAMAT'); return; }
+            const old=storyLevel; storyLevel++; const m=STORY_MISSIONS[storyLevel-1]; setStoryMission(storyLevel);
+            showStory(`LEVEL ${storyLevel}: ${m[0]}`, reason || 'Sebuah petunjuk baru mengubah tujuanmu.',m[2]); saveGame();
+        }
+        function completeStory(reason){ if(quest.completed)return; quest.current=1; quest.completed=true; updateQuestUI(); showNotification('✅ '+quest.title+' selesai'); setTimeout(()=>advanceStory(reason),700); }
+        function checkStoryInteraction(){
+            const d={crash:distanceToPoint(storyPoints.crash),lake:distanceToPoint(storyPoints.lake),village:distanceToPoint(storyPoints.village),caveWest:distanceToPoint(storyPoints.caveWest),caveEast:distanceToPoint(storyPoints.caveEast),waterfall:distanceToPoint(storyPoints.waterfall),mountain:distanceToPoint(storyPoints.mountain),desert:distanceToPoint(storyPoints.desert),bunker:distanceToPoint(storyPoints.bunker),extraction:distanceToPoint(storyPoints.extraction)};
+            if(storyLevel===1 && d.crash<9){completeStory('Kamu menemukan ransel survival, flare, dan potongan peta. Tidak ada tanda pilot.');return true;}
+            if(storyLevel===3 && d.waterfall<14){completeStory('Air menyelamatkanmu. Di lumpur dekat kolam, kamu melihat jejak sepatu manusia.');return true;}
+            if(storyLevel===4 && d.caveWest<14){completeStory('Di dalam gua ada ransel bertanda nama anggota ekspedisi lain. Orangnya masih hidup.');return true;}
+            if(storyLevel===5 && d.lake<14){completeStory('Potongan ekor pesawat kedua ditemukan. Ini bukan kecelakaan pertama.');return true;}
+            if(storyLevel===6 && d.village<18){completeStory('Penduduk desa mengenali lambang pesawatmu dan memperingatkan tentang gunung terlarang.');return true;}
+            if((storyLevel===7||storyLevel===8) && d.caveEast<14){completeStory('Kamu menemukan radio dan camp penyintas yang masih hangat. Seseorang pergi ke gunung.');return true;}
+            if(storyLevel===9 && d.mountain<35){completeStory('Dari ketinggian, radio menangkap sinyal lemah: ada lokasi jatuh lain di barat.');return true;}
+            if(storyLevel===10 && d.lake<22){completeStory('Di bawah logam hangus terdapat simbol fasilitas penelitian.');return true;}
+            if(storyLevel===11 && d.bunker<45){completeStory('Pintu fasilitas tua terlihat di balik bebatuan.');return true;}
+            if(storyLevel===12 && d.desert<35){completeStory('Di tanah tandus kamu menemukan kabel listrik menuju bawah tanah.');return true;}
+            if(storyLevel===13 && d.waterfall<18){completeStory('Di balik air terjun ada pintu baja tersembunyi.');return true;}
+            if(storyLevel===14 && d.bunker<20){completeStory('Rekaman menyebut pesawatmu ditembak jatuh karena membawa sesuatu yang tidak boleh keluar dari wilayah ini.');return true;}
+            if(storyLevel===15 && d.bunker<30){completeStory('Bukti terakhir tersimpan di bunker. Sekarang kelompok pemburu mengetahui posisimu.');return true;}
+            if(storyLevel===16 && d.mountain<35){completeStory('Kamu mencapai lereng gunung sebelum patroli mengepung area.');return true;}
+            if(storyLevel===17 && totalKills>=3){completeStory('Tiga drone penjaga hancur. Jalan menuju menara radio terbuka.');return true;}
+            if(storyLevel===18 && bossDefeated){completeStory('Drone Induk jatuh. Menara radio akhirnya bisa digunakan.');return true;}
+            if(storyLevel===19 && bossDefeated && d.extraction<30){completeStory('Kamu menolak ikut bersama mereka. Hanya satu tujuan tersisa: keluar.');return true;}
+            if(storyLevel===20 && d.extraction<12){completeStory('Helikopter datang. Kamu berlari menuju titik ekstraksi.');return true;}
+            return false;
+        }
+        function updateStoryProgress(){
+            if(storyLevel===2 && totalAnimals>=2 && !quest.completed) completeStory('Daging cukup untuk bertahan. Sekarang cari sumber air.');
+            if(storyLevel===17 && totalKills>=3 && !quest.completed) completeStory('Patroli udara mulai berkurang.');
+            if(storyLevel===18 && bossDefeated && !quest.completed) completeStory('Ledakan itu terdengar sampai lembah.');
+        }
+
+        // ============ MINIMAP ============
+        const minimapCanvas = document.getElementById('minimap');
+        const minimapCtx = minimapCanvas.getContext('2d');
+        const MINIMAP_SIZE = 150;
+        const MINIMAP_RANGE = 100;
+
+        function updateMinimap() {
+            const ctx = minimapCtx;
+            const w = MINIMAP_SIZE, h = MINIMAP_SIZE;
+            const bgGrad = ctx.createRadialGradient(w/2, h/2, 8, w/2, h/2, w/2);
+            bgGrad.addColorStop(0, '#22400f');
+            bgGrad.addColorStop(1, '#0c1808');
+            ctx.fillStyle = bgGrad;
+            ctx.fillRect(0, 0, w, h);
+            ctx.strokeStyle = 'rgba(70,120,45,0.4)';
+            ctx.lineWidth = 1;
+            for (let i = 0; i < w; i += 15) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, h); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(w, i); ctx.stroke();
+            }
+            const px = camera.position.x, pz = camera.position.z;
+            const scale = w / (MINIMAP_RANGE * 2);
+            
+            ctx.fillStyle = '#4444ff';
+            caves.forEach(cave => {
+                const x = (cave.position.x - px) * scale + w/2;
+                const y = (cave.position.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
+            });
+            
+            ctx.fillStyle = '#ffff00';
+            const villageX = (550 - px) * scale + w/2;
+            const villageY = (450 - pz) * scale + h/2;
+            if (villageX >= 0 && villageX < w && villageY >= 0 && villageY < h) {
+                ctx.fillRect(villageX - 5, villageY - 5, 10, 10);
+            }
+            
+            ctx.fillStyle = '#ff6600';
+            campfires.forEach(cf => {
+                const x = (cf.x - px) * scale + w/2;
+                const y = (cf.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill(); }
+            });
+            
+            ctx.fillStyle = '#ff0000';
+            drones.forEach(drone => {
+                if (drone.destroyed) return;
+                const x = (drone.group.position.x - px) * scale + w/2;
+                const y = (drone.group.position.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill(); }
+            });
+            
+            if (bossDrone && !bossDrone.destroyed) {
+                ctx.fillStyle = '#ff0000';
+                const x = (bossDrone.group.position.x - px) * scale + w/2;
+                const y = (bossDrone.group.position.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill(); }
+            }
+            
+            ctx.fillStyle = '#90EE90';
+            animals.forEach(animal => {
+                if (!animal.alive) return;
+                const x = (animal.group.position.x - px) * scale + w/2;
+                const y = (animal.group.position.z - pz) * scale + h/2;
+                if (x >= 0 && x < w && y >= 0 && y < h) { ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fill(); }
+            });
+            
+            // Marker pemain: dulu cuma titik bulat + garis arah pendek, sekarang panah
+            // segitiga yang beneran muter ngikutin arah hadap kamera.
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            const heading = Math.atan2(dir.x, -dir.z);
+            ctx.save();
+            ctx.translate(w/2, h/2);
+            ctx.fillStyle = 'rgba(0,255,136,0.25)';
+            ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+            ctx.rotate(heading);
+            ctx.fillStyle = '#00ff88';
+            ctx.beginPath();
+            ctx.moveTo(0, -8);
+            ctx.lineTo(5, 6);
+            ctx.lineTo(0, 3);
+            ctx.lineTo(-5, 6);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+
+            ctx.strokeStyle = 'rgba(0,255,136,0.5)';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(1, 1, w - 2, h - 2);
+        }
+
+        // ============ KONTROL PEMAIN ============
+        const controls = new PointerLockControls(camera, document.body);
+        const blocker = document.getElementById('blocker');
+        const promptUI = document.getElementById('interaction-prompt');
+
+        blocker.addEventListener('click', () => {
+            try { SoundManager.init(); } catch(e) {}
+            if (isGameOver) {
+                isGameOver = false;
+                playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA; playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
+                updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+                camera.position.set(500, getTerrainHeight(500, 500) + 2.5, 500);
+                blocker.innerHTML = `<h1 style="color: #00ff00;">WILDLANDS: LAST SIGNAL</h1><p style="font-size: 16px;">🎮 Survival 3D</p><p style="color: #ffff00; margin-top: 20px; font-size: 18px;">[ KLIK UNTUK MULAI ]</p><p id="load-status" style="color: #888; margin-top: 10px;">Siap!</p>`;
+            }
+            try { controls.lock(); } catch(e) {}
+        });
+
+        controls.addEventListener('lock', () => { blocker.style.display = 'none'; document.getElementById('pause-menu').style.display = 'none'; isPaused = false; });
+        controls.addEventListener('unlock', () => { if (!isGameOver && !isPaused) blocker.style.display = 'flex'; });
+
+        window.resumeGame = function() { document.getElementById('pause-menu').style.display = 'none'; isPaused = false; controls.lock(); };
+        window.saveAndResume = function() { saveGame(); SoundManager.play('save'); showNotification("💾 Game Disimpan!"); resumeGame(); };
+
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let canJump = false;
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const playerHeight = 2.5;
+        let lastFootstepTime = 0;
+
+        document.addEventListener('keydown', (e) => {
+            try {
+                if (isPaused && e.code !== 'Escape') return;
+                if (e.code === 'KeyW') moveForward = true;
+                if (e.code === 'KeyA') moveLeft = true;
+                if (e.code === 'KeyS') moveBackward = true;
+                if (e.code === 'KeyD') moveRight = true;
+                if (e.code === 'Space' && canJump && playerStamina > 10) { velocity.y += 8; canJump = false; playerStamina = Math.max(0, playerStamina - 5); }
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { isSprinting = true; document.getElementById('sprint-indicator').style.display = 'block'; }
+                if (e.code === 'Enter' && storyOverlayOpen) { closeStory(); return; }
+                if (e.code === 'Escape' && controls.isLocked) { isPaused = true; controls.unlock(); document.getElementById('pause-menu').style.display = 'block'; return; }
+                if (e.code === 'Escape' && document.getElementById('npc-dialog').style.display === 'block') { closeNPCDialog(); return; }
+                
+                if (e.code === 'KeyE' && controls.isLocked && !isPlacingCampfire && document.getElementById('npc-dialog').style.display !== 'block') {
+                    if (checkStoryInteraction()) return;
+                    // Cek NPC dulu
+                    let npcFound = false;
+                    for (const npc of npcs) {
+                        const dist = camera.position.distanceTo(npc.position);
+                        if (dist < 4) {
+                            targetNPC = npc;
+                            interactWithNPC(npc);
+                            npcFound = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!npcFound && !targetNPC) {
+                        // Cek hewan
+                        let animalFound = false;
+                        for (const animal of animals) {
+                            if (!animal.alive) continue;
+                            const dist = camera.position.distanceTo(animal.group.position);
+                            if (dist < 6) {
+                                targetAnimal = animal;
+                                if (currentWeapon !== 'none') {
+                                    const damage = currentWeapon === 'fire_arrow' ? 15 : currentWeapon === 'arrow' ? 25 : 10;
+                                    animal.takeDamage(damage);
+                                    if (currentWeapon === 'arrow' && inventory.arrows > 0) { inventory.arrows--; }
+                                    else if (currentWeapon === 'fire_arrow' && inventory.fire_arrows > 0) { inventory.fire_arrows--; }
+                                    else if (currentWeapon === 'stone' && inventory.stones > 0) { inventory.stones--; }
+                                    updateUI();
+                                    SoundManager.play('hit');
+                                } else {
+                                    showNotification("️ Pilih senjata dulu (1/2/3)!", true);
+                                }
+                                animalFound = true;
+                                break;
+                            }
+                        }
+                        
+                        if (!animalFound && !targetAnimal) {
+                            // Cek air
+                            const isNearWaterCheck = camera.position.y <= -1.5 + 2.6;
+                            if (isNearWaterCheck) {
+                                playerThirst = Math.min(MAX_THIRST, playerThirst + 25);
+                                SoundManager.play('drink');
+                                showNotification("💧 Segar! Haus berkurang.");
+                                updateSurvivalUI();
+                            } else {
+                                // Cek pohon & batu (key dikasih prefix chunk biar nggak numpuk-tabrakan
+                                // sama instance id di chunk lain yang kebetulan angkanya sama)
+                                let treeFound = false;
+                                chunks.forEach(chunk => {
+                                    if (treeFound) return;
+                                    const chunkPrefix = `${chunk.cx},${chunk.cz}`;
+                                    if (chunk.treeMeshes) {
+                                        for (const tm of chunk.treeMeshes) {
+                                            if (treeFound) break;
+                                            const intersectsT = raycaster.intersectObject(tm.mesh);
+                                            if (intersectsT.length > 0 && intersectsT[0].distance < 6) {
+                                                const instanceId = intersectsT[0].instanceId;
+                                                const key = `${chunkPrefix}:${tm.tag}:${instanceId}`;
+                                                if (!choppedTrees.has(key)) {
+                                                    chopTree(key, instanceId, tm.mesh);
+                                                    treeFound = true;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (!treeFound && chunk.rockMesh) {
+                                        const intersectsR = raycaster.intersectObject(chunk.rockMesh);
+                                        if (intersectsR.length > 0 && intersectsR[0].distance < 6) {
+                                            const instanceId = intersectsR[0].instanceId;
+                                            const key = `${chunkPrefix}:rock:${instanceId}`;
+                                            if (!minedRocks.has(key)) {
+                                                mineRock(key, instanceId, chunk.rockMesh);
+                                                treeFound = true;
+                                            }
+                                        }
+                                    }
+                                });
+
+                                if (!treeFound) {
+                                    showNotification("⚠️ Tidak ada yang bisa diinteraksi!", true);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                if (e.code === 'KeyC' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 5) { startPlacementMode(); SoundManager.play('craft'); }
+                    else { showNotification(`Butuh 5 kayu!`, true); }
+                }
+                if (e.code === 'KeyF' && isPlacingCampfire && controls.isLocked) placeCampfire();
+                if ((e.code === 'KeyX' || e.code === 'Escape') && isPlacingCampfire) cancelPlacement();
+                if (e.code === 'Digit1' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'stone'; updateWeaponHUD(); }
+                if (e.code === 'Digit2' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'arrow'; updateWeaponHUD(); }
+                if (e.code === 'Digit3' && controls.isLocked && !isPlacingCampfire) { currentWeapon = 'fire_arrow'; updateWeaponHUD(); }
+                if (e.code === 'KeyG' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 1 && (inventory.arrows || 0) >= 1) {
+                        inventory.wood -= 1; inventory.arrows -= 1; inventory.fire_arrows = (inventory.fire_arrows || 0) + 1;
+                        updateUI(); showNotification("🔥 +1 Panah Api!"); SoundManager.play('craft'); saveGame();
+                    } else { showNotification(`Butuh 1 Kayu + 1 Panah!`, true); }
+                }
+                if (e.code === 'KeyT' && controls.isLocked && !isPlacingCampfire) {
+                    if ((inventory.wood || 0) >= 2) { inventory.wood -= 2; inventory.arrows = (inventory.arrows || 0) + 3; updateUI(); showNotification("🏹 +3 Panah!"); SoundManager.play('craft'); saveGame(); }
+                }
+                if (e.code === 'KeyH' && controls.isLocked) {
+                    if ((inventory.meat || 0) >= 1) {
+                        inventory.meat--;
+                        playerHunger = Math.min(MAX_HUNGER, playerHunger + 30);
+                        playerHealth = Math.min(MAX_HEALTH, playerHealth + 10);
+                        updateUI(); updateHealthUI(); updateSurvivalUI();
+                        SoundManager.play('eat');
+                        showNotification("🥩 Makan daging! HP +10, Lapar +30");
+                        saveGame();
+                    } else {
+                        showNotification("❌ Tidak ada daging!", true);
+                    }
+                }
+                if (e.code === 'KeyQ' && controls.isLocked) { saveGame(); SoundManager.play('save'); showNotification("💾 Game Disimpan!"); }
+                if (e.code === 'KeyR' && controls.isLocked) loadGame();
+            } catch(e) {}
+        });
+
+        document.addEventListener('mousedown', (e) => {
+            try {
+                if (e.button === 0 && controls.isLocked && !isPlacingCampfire && !isPaused && document.getElementById('npc-dialog').style.display !== 'block') {
+                    if (targetAnimal !== null && targetAnimal.alive && currentWeapon !== 'none') {
+                        const damage = currentWeapon === 'fire_arrow' ? 15 : currentWeapon === 'arrow' ? 25 : 10;
+                        targetAnimal.takeDamage(damage);
+                        if (currentWeapon === 'arrow' && inventory.arrows > 0) { inventory.arrows--; }
+                        else if (currentWeapon === 'fire_arrow' && inventory.fire_arrows > 0) { inventory.fire_arrows--; }
+                        else if (currentWeapon === 'stone' && inventory.stones > 0) { inventory.stones--; }
+                        updateUI();
+                    } else {
+                        shootWeapon();
+                    }
+                }
+            } catch(e) {}
+        });
+
+        document.addEventListener('keyup', (e) => {
+            try {
+                if (e.code === 'KeyW') moveForward = false;
+                if (e.code === 'KeyA') moveLeft = false;
+                if (e.code === 'KeyS') moveBackward = false;
+                if (e.code === 'KeyD') moveRight = false;
+                if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') { isSprinting = false; document.getElementById('sprint-indicator').style.display = 'none'; }
+            } catch(e) {}
+        });
+
+        // Nyembunyiin instance dari InstancedMesh dengan cara di-nol-in skalanya - sebelumnya
+        // kode ini reset matrix ke identity, yang cuma mindahin pohon ke titik (0,0,0) lokal
+        // chunk (bukan beneran nyembunyiin), jadi tiap nebang pohon malah muncul "pohon hantu"
+        // ukuran penuh nangkring di pojok chunk. Skala 0 = beneran hilang dari layar.
+        function hideInstance(mesh, instanceId) {
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(instanceId, dummy.matrix);
+            mesh.instanceMatrix.needsUpdate = true;
+        }
+
+        function chopTree(key, instanceId, treeMesh) {
+            hideInstance(treeMesh, instanceId);
+            choppedTrees.add(key);
+            inventory.wood += 1;
+            updateUI();
+            SoundManager.play('chop');
+            showNotification(`+1 Kayu! (Total: ${inventory.wood})`);
+            targetInstanceId = null;
+            promptUI.style.display = 'none';
+            saveGame();
+        }
+
+        function mineRock(key, instanceId, rockMesh) {
+            hideInstance(rockMesh, instanceId);
+            minedRocks.add(key);
+            inventory.stones = (inventory.stones || 0) + 2;
+            updateUI();
+            SoundManager.play('chop');
+            showNotification(`+2 Batu! (Total: ${inventory.stones})`);
+            targetInstanceId = null;
+            promptUI.style.display = 'none';
+            saveGame();
+        }
+
+        // ============ DAY/NIGHT ============
+        let timeOfDay = 8.0;
+        const timeSpeed = 0.15;
+        const skyColors = { night: new THREE.Color(0x0a0a2e), dawn: new THREE.Color(0xff8c42), day: new THREE.Color(0x87CEEB), dusk: new THREE.Color(0xff6b6b) };
+
+        function getSkyColor(time) {
+            if (time < 5) return skyColors.night;
+            if (time < 7) return skyColors.night.clone().lerp(skyColors.dawn, (time - 5) / 2);
+            if (time < 9) return skyColors.dawn.clone().lerp(skyColors.day, (time - 7) / 2);
+            if (time < 17) return skyColors.day;
+            if (time < 19) return skyColors.day.clone().lerp(skyColors.dusk, (time - 17) / 2);
+            if (time < 21) return skyColors.dusk.clone().lerp(skyColors.night, (time - 19) / 2);
+            return skyColors.night;
+        }
+        function getTimePeriod(time) {
+            if (time < 5) return "Tengah Malam"; if (time < 7) return "Subuh";
+            if (time < 11) return "Pagi"; if (time < 14) return "Siang";
+            if (time < 17) return "Sore"; if (time < 19) return "Senja";
+            if (time < 21) return "Maghrib"; return "Malam";
+        }
+        function formatTime(time) {
+            const h = Math.floor(time) % 24, m = Math.floor((time - Math.floor(time)) * 60);
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+        }
+
+        scene.fog = new THREE.Fog(skyColors.day, 30, 180);
+        scene.background = skyColors.day.clone();
+
+        // ============ UI & SAVE/LOAD ============
+        function updateUI() {
+            document.getElementById('inv-wood').innerText = inventory.wood || 0;
+            document.getElementById('inv-arrows').innerText = inventory.arrows || 0;
+            document.getElementById('inv-fire').innerText = inventory.fire_arrows || 0;
+            document.getElementById('inv-stones').innerText = inventory.stones || 0;
+            document.getElementById('inv-meat').innerText = inventory.meat || 0;
+            updateWeaponHUD();
+        }
+        function updateWeaponHUD() {
+            const nameEl = document.getElementById('weapon-name'); const ammoEl = document.getElementById('weapon-ammo');
+            if (currentWeapon === 'arrow') { nameEl.innerText = '🏹 Panah'; ammoEl.innerText = `× ${inventory.arrows || 0}`; }
+            else if (currentWeapon === 'fire_arrow') { nameEl.innerText = '🔥 Panah Api'; ammoEl.innerText = `× ${inventory.fire_arrows || 0}`; }
+            else if (currentWeapon === 'stone') { nameEl.innerText = '🪨 Batu'; ammoEl.innerText = `× ${inventory.stones || 0}`; }
+            else { nameEl.innerText = '👊 Tangan Kosong'; ammoEl.innerText = '-'; }
+        }
+        function showNotification(text, isError = false) {
+            const notif = document.getElementById('notification');
+            notif.innerText = text;
+            notif.style.background = isError ? 'rgba(255, 0, 0, 0.2)' : 'rgba(0, 255, 0, 0.2)';
+            notif.style.color = isError ? '#ff4444' : '#00ff00';
+            notif.style.borderColor = isError ? '#ff4444' : '#00ff00';
+            notif.style.opacity = 1;
+            setTimeout(() => { notif.style.opacity = 0; }, 3000);
+        }
+
+        async function saveGame() {
+            if (!supabase) return;
+            try {
+                const saveData = {
+                    player_id: playerId, pos_x: camera.position.x, pos_y: camera.position.y, pos_z: camera.position.z,
+                    time_of_day: timeOfDay, inventory: inventory, chopped_trees: Array.from(choppedTrees),
+                    mined_rocks: Array.from(minedRocks),
+                    campfires: campfires, health: playerHealth, stamina: playerStamina,
+                    hunger: playerHunger, thirst: playerThirst, quest: quest, total_kills: totalKills,
+                    total_animals: totalAnimals, boss_defeated: bossDefeated, story_level: storyLevel, story_flags: storyFlags
+                };
+                await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
+            } catch(e) {}
+        }
+
+        async function loadGame() {
+            if (!supabase) return false;
+            try {
+                const { data, error } = await supabase.from('players').select('*').eq('player_id', playerId).single();
+                if (data && !error) {
+                    camera.position.set(data.pos_x, data.pos_y, data.pos_z);
+                    timeOfDay = data.time_of_day || 8.0;
+                    playerHealth = data.health || MAX_HEALTH;
+                    playerStamina = data.stamina || MAX_STAMINA;
+                    playerHunger = data.hunger !== undefined ? data.hunger : MAX_HUNGER;
+                    playerThirst = data.thirst !== undefined ? data.thirst : MAX_THIRST;
+                    if (data.inventory) inventory = data.inventory;
+                    if (data.quest) quest = data.quest;
+                    if (data.total_kills) totalKills = data.total_kills;
+                    if (data.total_animals) totalAnimals = data.total_animals;
+                    if (data.boss_defeated) bossDefeated = data.boss_defeated;
+                    if (data.story_level) storyLevel = Math.max(1, Math.min(20, data.story_level));
+                    if (data.story_flags) storyFlags = data.story_flags;
+                    setStoryMission(storyLevel);
+                    if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
+                        data.chopped_trees.forEach(id => choppedTrees.add(id));
+                    }
+                    if (data.mined_rocks && Array.isArray(data.mined_rocks)) {
+                        data.mined_rocks.forEach(id => minedRocks.add(id));
+                    }
+                    if (data.campfires && Array.isArray(data.campfires)) {
+                        campfires = data.campfires;
+                        campfires.forEach(pos => { const campfire = createCampfireMesh(false); campfire.position.set(pos.x, pos.y, pos.z); campfireGroup.add(campfire); });
+                    }
+                    showNotification("✅ Game Dimuat!");
+                    updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI(); updateKillCounter(); updateAnimalCounter();
+                    return true;
+                }
+            } catch(e) {}
+            camera.position.set(500, getTerrainHeight(500, 500) + playerHeight, 500);
+            updateUI(); updateHealthUI(); updateStaminaUI(); updateSurvivalUI(); updateQuestUI(); updateKillCounter(); updateAnimalCounter();
+            return false;
+        }
+        
+        setInterval(() => { if (controls.isLocked && !isPaused) { saveGame(); const indicator = document.getElementById('autosave-indicator'); indicator.style.opacity = 1; setTimeout(() => { indicator.style.opacity = 0; }, 1500); } }, 30000);
+
+        // ============ GAME LOOP ============
+        let prevTime = performance.now();
+        
+        loadGame().then(() => {
+            const worldMin = 10;
+            const worldMax = 990;
+            
+            if (camera.position.x < worldMin || camera.position.x > worldMax ||
+                camera.position.z < worldMin || camera.position.z > worldMax) {
+                camera.position.set(500, 0, 500);
+            }
+            
+            const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+            camera.position.y = terrainY + playerHeight;
+            document.getElementById('load-status').innerText = 'Siap! Klik untuk mulai.';
+            updateChunks();
+        });
+
+        function animate() {
+            try {
+                requestAnimationFrame(animate);
+                const time = performance.now();
+                const delta = Math.min((time - prevTime) / 1000, 0.1);
+
+                chunkUpdateTimer.value += delta;
+                if (chunkUpdateTimer.value > 1.0) {
+                    chunkUpdateTimer.value = 0;
+                    updateChunks();
+                }
+
+                timeOfDay += timeSpeed * delta;
+                if (!storyOverlayOpen) updateStoryProgress();
+                if (timeOfDay >= 24) timeOfDay -= 24;
+                const currentSkyColor = getSkyColor(timeOfDay);
+                scene.background = currentSkyColor; scene.fog.color = currentSkyColor;
+
+                // Kubah langit & langit-langit dekorasi (awan/bintang/bulan/matahari) selalu
+                // ngikutin posisi kamera, biar keliatan "tak terhingga" kemanapun pemain jalan
+                // di peta (dulu nongkrong diem di sekitar titik (0,0,0), jauh dari area main).
+                skyGroup.position.set(camera.position.x, 0, camera.position.z);
+                const zenithColor = currentSkyColor.clone().lerp(new THREE.Color(0x000018), 0.55);
+                updateSkyDomeColors(currentSkyColor, zenithColor);
+
+                const sunAngle = ((timeOfDay - 6) / 24) * Math.PI * 2;
+                const sunDist = 300;
+                const sunOffsetX = Math.cos(sunAngle) * sunDist, sunOffsetY = Math.sin(sunAngle) * sunDist;
+                sunLight.target.position.copy(camera.position);
+                sunLight.position.set(camera.position.x + sunOffsetX, camera.position.y + sunOffsetY, camera.position.z + 50);
+                const sunHeight = Math.sin(sunAngle);
+                sunLight.intensity = sunHeight > 0 ? (0.5 + sunHeight * 0.8) : 0.1;
+                hemiLight.intensity = sunHeight > 0 ? (0.35 + sunHeight * 0.35) : 0.18;
+                hemiLight.color.copy(currentSkyColor).lerp(new THREE.Color(0xffffff), 0.3);
+
+                // Bola matahari & bulan yang keliatan, posisinya di kubah langit (lokal
+                // terhadap skyGroup yang udah ngikutin kamera), naik-turun ngikutin sunAngle.
+                sunSprite.position.set(sunOffsetX * 1.3, sunOffsetY * 1.3, 40);
+                sunSprite.material.opacity = THREE.MathUtils.clamp(sunHeight * 4, 0, 1);
+                sunSprite.visible = sunHeight > -0.15;
+                const moonAngle = sunAngle + Math.PI;
+                moon.position.set(Math.cos(moonAngle) * sunDist * 1.3, Math.sin(moonAngle) * sunDist * 1.3, 40);
+
+                clouds.forEach(cloud => {
+                    cloud.position.x += cloud.userData.speed * delta;
+                    if (cloud.position.x > 400) cloud.position.x = -400;
+                });
+
+                // Shimmer air - satu material dibagi semua chunk jadi cukup diupdate sekali di sini
+                sharedWaterMat.opacity = 0.72 + Math.sin(time * 0.0015) * 0.05 + Math.sin(time * 0.0037) * 0.03;
+                sharedWaterMat.color.setHSL(0.57, 0.55, 0.32 + Math.sin(time * 0.0009) * 0.03);
+
+                // Air terjun: scroll tekstur ke bawah biar keliatan "mengalir", plus kabut
+                // di kolamnya nyala-mati gantian kayak percikan air.
+                waterfallInstance.waterTex.offset.y -= delta * 2.2;
+                waterfallInstance.sheet.material.opacity = 0.8 + Math.sin(time * 0.006) * 0.08;
+                waterfallInstance.mistSprites.forEach(s => {
+                    s.userData.life -= delta * 0.4;
+                    if (s.userData.life <= 0) {
+                        s.userData.life = 1.5 + Math.random() * 1.5;
+                        s.position.set(s.userData.baseX + (Math.random() - 0.5) * 3, WATERFALL_POOL_Y + Math.random() * 0.5, s.userData.baseZ + (Math.random() - 0.5) * 3);
+                    }
+                    const lifeT = THREE.MathUtils.clamp(s.userData.life, 0, 1);
+                    s.material.opacity = Math.sin(Math.min(lifeT, 1) * Math.PI) * 0.4;
+                    s.position.y += delta * 0.3;
+                });
+
+                const isNight = timeOfDay < 6 || timeOfDay > 19;
+                // Transisi bintang dibikin ngelerp halus di sekitar batas malam/siang (dulu
+                // langsung "nyala/mati" mendadak persis di jam 06:00 dan 19:00).
+                const nightFade = THREE.MathUtils.clamp(1 - (Math.sin(sunAngle) + 0.15) / 0.3, 0, 1);
+                starsMat.opacity = nightFade * 0.8;
+                moon.visible = moon.position.y > -20;
+
+                const flicker = Math.sin(time * 0.05) * 0.2 + Math.random() * 0.2;
+                campfireGroup.children.forEach(campfire => {
+                    campfire.children.forEach(child => {
+                        if (child.isLight) child.intensity = 1.5 + flicker;
+                        if (child.name === 'fireMesh') child.scale.y = 1 + flicker * 0.5;
+                        if (child.name === 'fireMeshInner') child.scale.y = 1 + Math.sin(time * 0.08 + 1.5) * 0.3;
+                    });
+                    // Ngepul-in asap yang udah ditaruh di createCampfireMesh()
+                    const smoke = campfire.userData.smoke;
+                    if (smoke) {
+                        campfire.userData.smokeTimer -= delta;
+                        if (campfire.userData.smokeTimer <= 0) {
+                            campfire.userData.smokeTimer = 0.7 + Math.random() * 0.5;
+                            const dead = smoke.find(s => s.userData.life <= 0);
+                            if (dead) {
+                                dead.userData.life = 1;
+                                dead.userData.drift = (Math.random() - 0.5) * 0.15;
+                                dead.position.set((Math.random() - 0.5) * 0.2, 0.6, (Math.random() - 0.5) * 0.2);
+                                dead.scale.set(0.4, 0.4, 1);
+                            }
+                        }
+                        smoke.forEach(s => {
+                            if (s.userData.life > 0) {
+                                s.userData.life -= delta * 0.3;
+                                s.position.y += delta * 0.5;
+                                s.position.x += s.userData.drift * delta;
+                                const lifeT = THREE.MathUtils.clamp(1 - s.userData.life, 0, 1);
+                                s.material.opacity = Math.sin(Math.min(lifeT, 1) * Math.PI) * 0.35;
+                                s.scale.setScalar(0.4 + lifeT * 0.9);
+                            } else {
+                                s.material.opacity = 0;
+                            }
+                        });
+                    }
+                });
+
+                fireflyGroup.position.set(camera.position.x, 0, camera.position.z);
+                fireflies.forEach(f => {
+                    const off = f.userData.offset;
+                    f.position.set(
+                        off.x + Math.sin(time * 0.0007 * f.userData.speed + f.userData.phase) * 3,
+                        off.y + Math.sin(time * 0.002 + f.userData.phase) * 0.4,
+                        off.z + Math.cos(time * 0.0006 * f.userData.speed + f.userData.phase) * 3
+                    );
+                    f.material.opacity = nightFade * (0.4 + Math.sin(time * 0.005 + f.userData.phase) * 0.3);
+                });
+
+                const allTargets = [...drones];
+                if (bossDrone && !bossDrone.destroyed) allTargets.push(bossDrone);
+                animals.forEach(a => { if (a.alive) allTargets.push(a); });
+                
+                for (let i = projectiles.length - 1; i >= 0; i--) {
+                    const proj = projectiles[i]; proj.update(delta);
+                    const hitTarget = proj.checkHit(allTargets);
+                    if (hitTarget) {
+                        hitTarget.takeDamage(proj.damage);
+                        if (proj.burnDamage > 0 && hitTarget.applyBurn) hitTarget.applyBurn(proj.burnDuration, proj.burnDamage);
+                        proj.destroy();
+                    }
+                    if (!proj.alive) projectiles.splice(i, 1);
+                }
+
+                animals.forEach(animal => animal.update(delta, camera.position));
+
+                let anyDroneChasing = false;
+                drones.forEach(drone => {
+                    drone.update(delta, camera.position, timeOfDay);
+                    if (!drone.destroyed && (drone.state === 'CHASE' || drone.state === 'ATTACK')) anyDroneChasing = true;
+                });
+                
+                if (bossDrone && !bossDrone.destroyed) {
+                    bossDrone.update(delta, camera.position, timeOfDay);
+                    anyDroneChasing = true;
+                }
+                document.getElementById('alert-indicator').style.display = anyDroneChasing ? 'block' : 'none';
+
+                if (controls.isLocked && !isPaused && document.getElementById('npc-dialog').style.display !== 'block') {
+                    velocity.x -= velocity.x * 10.0 * delta; velocity.z -= velocity.z * 10.0 * delta; velocity.y -= 25.0 * delta;
+                    direction.z = Number(moveForward) - Number(moveBackward); direction.x = Number(moveRight) - Number(moveLeft); direction.normalize();
+
+                    const isMoving = moveForward || moveBackward || moveLeft || moveRight;
+                    const canSprint = isSprinting && playerStamina > 0 && isMoving;
+                    const moveSpeed = canSprint ? 140.0 : 80.0;
+
+                    if (moveForward || moveBackward) velocity.z -= direction.z * moveSpeed * delta;
+                    if (moveLeft || moveRight) velocity.x -= direction.x * moveSpeed * delta;
+
+                    controls.moveRight(-velocity.x * delta); controls.moveForward(-velocity.z * delta);
+                    
+                    const worldMin = 10;
+                    const worldMax = 990;
+                    camera.position.x = Math.max(worldMin, Math.min(worldMax, camera.position.x));
+                    camera.position.z = Math.max(worldMin, Math.min(worldMax, camera.position.z));
+                    
+                    const terrainY = getTerrainHeight(camera.position.x, camera.position.z);
+                    const groundLevel = Math.max(terrainY, -1.5);
+                    camera.position.y += velocity.y * delta;
+
+                    if (camera.position.y < groundLevel + playerHeight) {
+                        velocity.y = 0; camera.position.y = groundLevel + playerHeight; canJump = true;
+                    }
+
+                    checkNearCampfire();
+                    checkNearCave();
+                    if (canSprint) { playerStamina = Math.max(0, playerStamina - STAMINA_DRAIN_RATE * delta); }
+                    else if (isNearCampfire || isNearCave) {
+                        playerHealth = Math.min(MAX_HEALTH, playerHealth + HP_REGEN_CAMPFIRE * delta);
+                        playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_CAMPFIRE * delta);
+                        playerHunger = Math.min(MAX_HUNGER, playerHunger + 2.0 * delta);
+                        playerThirst = Math.min(MAX_THIRST, playerThirst + 2.0 * delta);
+                    } else { playerStamina = Math.min(MAX_STAMINA, playerStamina + STAMINA_REGEN_RATE * delta); }
+
+                    playerHunger = Math.max(0, playerHunger - HUNGER_DECAY * delta);
+                    playerThirst = Math.max(0, playerThirst - THIRST_DECAY * delta);
+
+                    if (playerHunger <= 0 || playerThirst <= 0) {
+                        starvationTimer += delta;
+                        if (starvationTimer >= 1.0) { takeDamage(2); starvationTimer = 0; }
+                    } else { starvationTimer = 0; }
+
+                    updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
+
+                    if (isMoving && canJump) {
+                        const stepInterval = isSprinting ? 300 : 500;
+                        if (time - lastFootstepTime > stepInterval) { SoundManager.play('footstep'); lastFootstepTime = time; }
+                    }
+
+                    if (isPlacingCampfire) {
+                        // ===== MODE PENEMPATAN API UNGGUN =====
+                        // Preview harus ngikutin arah pandang pemain tiap frame, dan validitasnya
+                        // (boleh ditaruh atau nggak) dihitung ulang di sini juga - sebelumnya dua
+                        // hal ini nggak pernah dilakukan sama sekali, jadi previewnya diem di
+                        // titik (0,0,0) (jauh dari pemain, makanya keliatan nggak "muncul") dan
+                        // placementValid selamanya false, jadi tombol F selalu gagal.
+                        if (campfirePreview) {
+                            const camDir = new THREE.Vector3();
+                            camera.getWorldDirection(camDir);
+                            camDir.y = 0;
+                            if (camDir.lengthSq() < 0.0001) camDir.set(0, 0, -1); else camDir.normalize();
+                            const placeDist = 4;
+                            const px = camera.position.x + camDir.x * placeDist;
+                            const pz = camera.position.z + camDir.z * placeDist;
+                            const py = getTerrainHeight(px, pz);
+                            campfirePreview.position.set(px, py, pz);
+                            // Denyut pelan biar marker penempatan keliatan "hidup", nggak diem kaku
+                            const pulse = 1 + Math.sin(time * 0.006) * 0.06;
+                            campfirePreview.scale.set(pulse, 1, pulse);
+
+                            let valid = py > -1; // nggak boleh di air
+                            if (valid) {
+                                for (const cf of campfires) {
+                                    if (Math.hypot(cf.x - px, cf.z - pz) < 3) { valid = false; break; }
+                                }
+                            }
+                            placementValid = valid;
+                            setPreviewColor(valid);
+                        }
+                    } else {
+                    const crosshair = document.getElementById('crosshair');
+                    let targeting = false;
+                    raycaster.setFromCamera(center, camera);
+                    for (const drone of drones) {
+                        if (drone.destroyed) continue;
+                        const screenPos = drone.group.position.clone();
+                        screenPos.project(camera);
+                        const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                        const dist = Math.sqrt(Math.pow(x - window.innerWidth/2, 2) + Math.pow(y - window.innerHeight/2, 2));
+                        if (dist < 50 && screenPos.z < 1) { targeting = true; break; }
+                    }
+                    if (bossDrone && !bossDrone.destroyed) {
+                        const screenPos = bossDrone.group.position.clone();
+                        screenPos.project(camera);
+                        const x = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+                        const dist = Math.sqrt(Math.pow(x - window.innerWidth/2, 2) + Math.pow(y - window.innerHeight/2, 2));
+                        if (dist < 80 && screenPos.z < 1) targeting = true;
+                    }
+                    crosshair.classList.toggle('target', targeting);
+
+                    raycaster.setFromCamera(center, camera);
+                    let promptShown = false;
+                    targetInstanceId = null;
+                    targetAnimal = null;
+                    targetNPC = null;
+
+                    for (const npc of npcs) {
+                        const dist = camera.position.distanceTo(npc.position);
+                        if (dist < 4) {
+                            targetNPC = npc;
+                            promptUI.innerHTML = `<span style="color:#ffff00">[E]</span> Bicara dengan ${npc.userData.name}`;
+                            promptUI.style.display = 'block';
+                            promptShown = true;
+                            break;
+                        }
+                    }
+
+                    if (!promptShown) {
+                        for (const animal of animals) {
+                            if (!animal.alive) continue;
+                            const dist = camera.position.distanceTo(animal.group.position);
+                            if (dist < 6) {
+                                targetAnimal = animal;
+                                promptUI.innerHTML = `<span style="color:#ff4444">[E/Klik]</span> Buru ${animal.type === 'deer' ? 'Rusa' : 'Kelinci'}`;
+                                promptUI.style.display = 'block';
+                                promptShown = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!promptShown) {
+                        const isNearWaterCheck = camera.position.y <= -1.5 + 2.6;
+                        if (isNearWaterCheck) {
+                            promptUI.innerHTML = '<span style="color:#00aaff">[E]</span> Minum Air';
+                            promptUI.style.display = 'block';
+                            promptShown = true;
+                        } else {
+                            chunks.forEach(chunk => {
+                                if (promptShown) return;
+                                const chunkPrefix = `${chunk.cx},${chunk.cz}`;
+                                if (chunk.treeMeshes) {
+                                    for (const tm of chunk.treeMeshes) {
+                                        if (promptShown) break;
+                                        const intersectsT = raycaster.intersectObject(tm.mesh);
+                                        if (intersectsT.length > 0 && intersectsT[0].distance < 6) {
+                                            const instanceId = intersectsT[0].instanceId;
+                                            if (!choppedTrees.has(`${chunkPrefix}:${tm.tag}:${instanceId}`)) {
+                                                targetInstanceId = instanceId;
+                                                promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tebang Pohon';
+                                                promptUI.style.display = 'block';
+                                                promptShown = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!promptShown && chunk.rockMesh) {
+                                    const intersectsR = raycaster.intersectObject(chunk.rockMesh);
+                                    if (intersectsR.length > 0 && intersectsR[0].distance < 6) {
+                                        const instanceId = intersectsR[0].instanceId;
+                                        if (!minedRocks.has(`${chunkPrefix}:rock:${instanceId}`)) {
+                                            targetInstanceId = instanceId;
+                                            promptUI.innerHTML = '<span style="color:#ffff00">[E]</span> Tambang Batu';
+                                            promptUI.style.display = 'block';
+                                            promptShown = true;
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    if (!promptShown) promptUI.style.display = 'none';
+                    }
+
+                    document.getElementById('time').innerText = formatTime(timeOfDay);
+                    document.getElementById('period').innerText = getTimePeriod(timeOfDay);
+                    updateMinimap();
+                }
+
+                prevTime = time;
+                renderer.render(scene, camera);
+            } catch(e) {
+                // requestAnimationFrame(animate) di atas udah selalu kepanggil di awal try,
+                // jadi loop-nya nggak boleh dijadwalin lagi di sini - kalau dobel, tiap error
+                // bakal ngelipatgandain jumlah frame yang jalan tiap detik dan bikin game freeze.
+                console.error('animate loop error:', e);
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
