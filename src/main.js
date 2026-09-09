@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import { createPlanetMeshes, planetColorAt, getPlanetTerrainHeight, PLANET_RADIUS, WATER_LEVEL } from './planet-terrain.js';
+import { createPlanetMeshes, planetColorAt, getPlanetTerrainHeight, setFlattenZones, PLANET_RADIUS, WATER_LEVEL } from './planet-terrain.js';
 import { PlanetPlayerController } from './player-controller.js';
 import { scatterTrees, isInKeepout } from './trees.js';
+import { scatterRocks } from './rocks.js';
 import { VILLAGE, CITY, CAVE_WEST, CAVE_EAST, WATERFALL_TOP, buildVillage, buildCity, roadColorBlend } from './village-city.js';
 import { buildCaves, buildWaterfall } from './caves-waterfall.js';
 import { spawnAnimals } from './animals-ai.js';
@@ -27,6 +28,18 @@ window.addEventListener('resize', () => {
 
 const sky = createSky(scene);
 
+// Ratain area sekitar pemukiman SEBELUM mesh planet dibangun (posisi VILLAGE/CITY/CAVE_* udah
+// ketemu duluan pas modul village-city.js di-import, lewat terrain MENTAH/belum diratain - jadi
+// aman, nggak ada lingkaran ketergantungan). Tanpa ini rumah/gedung nangkring miring di lereng
+// curam & suka ada kolam air nyempil random tepat di alun-alun (noise liar nggak peduli lokasi
+// gameplay). Radius "inner" = benar-benar rata, "outer" = transisi halus balik ke terrain liar.
+setFlattenZones([
+    { dir: VILLAGE.dir, height: VILLAGE.h, innerRadius: 30 / PLANET_RADIUS, outerRadius: 75 / PLANET_RADIUS },
+    { dir: CITY.dir, height: CITY.h, innerRadius: 42 / PLANET_RADIUS, outerRadius: 95 / PLANET_RADIUS },
+    { dir: CAVE_WEST.dir, height: CAVE_WEST.h, innerRadius: 14 / PLANET_RADIUS, outerRadius: 34 / PLANET_RADIUS },
+    { dir: CAVE_EAST.dir, height: CAVE_EAST.h, innerRadius: 14 / PLANET_RADIUS, outerRadius: 34 / PLANET_RADIUS },
+]);
+
 // Warna terrain = biome dasar + jalan (dirt/asphalt) di-lerp di atasnya - digabung SEBELUM
 // mesh planet dibangun, soalnya warnanya dibakar per-vertex sekali waktu generate.
 function combinedColorAt(dir, h) {
@@ -39,6 +52,7 @@ const player = new PlanetPlayerController(camera, renderer.domElement, { startDi
 
 // ============ DUNIA ============
 scatterTrees(scene, 3000);
+scatterRocks(scene, 900);
 buildVillage(scene);
 buildCity(scene);
 buildCaves(scene);

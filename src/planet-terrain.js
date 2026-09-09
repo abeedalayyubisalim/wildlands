@@ -19,11 +19,28 @@ const NOISE_DIRS = [];
 (function initNoiseDirs() {
     let seed = 1337;
     function rand() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+    // Frekuensi dikelompokkan sesuai oktaf yang makenya (lihat getPlanetTerrainHeight di bawah).
+    // Dulu freq-nya diacak RATA buat semua index (1.1-4.7) tanpa peduli kepake buat oktaf yang
+    // mana - jadi "continent" (yang nentuin bentuk benua/pantai/gunung skala besar) kadang
+    // kebagian frekuensi tinggi secara kebetulan, bikin garis pantai & pegunungan berubah
+    // drastis cuma dalam puluhan meter jarak (terverifikasi lewat sampling: tinggi bisa naik-
+    // turun 20+ unit hanya dalam radius 20-60 unit dari satu titik). Itu penyebab utama terrain
+    // kerasa "acak-acakan/jelek", rumah nangkring miring, & ada kolam air muncul random deket
+    // desa. Sekarang tiap kelompok oktaf punya jatah pita frekuensi sendiri yang lebih rendah -
+    // continent WAJIB frekuensi rendah (fitur besar & mulus), detail/rugged boleh lebih tinggi
+    // tapi kontribusinya emang cuma buat tekstur kecil di atas bentuk besar itu.
+    const FREQ_BANDS = [
+        [0.35, 0.85], // index 0-2: continent (skala benua/pantai/gunung - HARUS mulus)
+        [0.9, 1.6],   // index 3-5: detail (variasi menengah)
+        [1.6, 2.6],   // index 6-9: rugged (tekstur kasar kecil, cuma dipake di puncak gunung)
+        [1.6, 2.6],   // index 10-13: cadangan, konsisten sama rugged
+    ];
     for (let i = 0; i < 14; i++) {
         const theta = rand() * Math.PI * 2, phi = Math.acos(rand() * 2 - 1);
+        const band = i < 3 ? FREQ_BANDS[0] : i < 6 ? FREQ_BANDS[1] : i < 10 ? FREQ_BANDS[2] : FREQ_BANDS[3];
         NOISE_DIRS.push({
             dir: new THREE.Vector3(Math.sin(phi) * Math.cos(theta), Math.sin(phi) * Math.sin(theta), Math.cos(phi)),
-            freq: 1.1 + rand() * 3.6,
+            freq: band[0] + rand() * (band[1] - band[0]),
             phase: rand() * Math.PI * 2,
         });
     }
@@ -43,19 +60,48 @@ function sphereNoise(dir, octaveStart, octaveCount) {
 // continent: skala besar (nentuin daratan vs lautan & area pegunungan)
 export function getContinentValue(dir) { return sphereNoise(dir, 0, 3); }
 
+// --- Zona "flatten" (diisi dari luar lewat setFlattenZones - dipanggil main.js SEKALI, SETELAH
+// titik desa/kota/gua ditemukan tapi SEBELUM mesh planet dibangun) - bikin area sekitar
+// pemukiman beneran datar/landai, jadi rumah/gedung nggak nangkring miring di lereng curam &
+// nggak ada kolam air nyempil random pas persis di alun-alun desa. Di luar radius ini terrain
+// tetap liar sepenuhnya (nggak disentuh).
+let flattenZones = [];
+export function setFlattenZones(zones) { flattenZones = zones; }
+
+function applyFlatten(dir, rawH) {
+    if (flattenZones.length === 0) return rawH;
+    let h = rawH;
+    for (const z of flattenZones) {
+        const d = dir.angleTo(z.dir);
+        if (d >= z.outerRadius) continue;
+        let t;
+        if (d <= z.innerRadius) t = 1;
+        else {
+            const f = 1 - (d - z.innerRadius) / (z.outerRadius - z.innerRadius);
+            t = f * f * (3 - 2 * f); // smoothstep - transisi halus, nggak ada "tebing" di tepi zona
+        }
+        h = THREE.MathUtils.lerp(h, z.height, t);
+    }
+    return h;
+}
+
 export function getPlanetTerrainHeight(dir) {
     const continent = getContinentValue(dir);
     const detail = sphereNoise(dir, 3, 3);
     const rugged = sphereNoise(dir, 6, 4);
-    let h = continent * 8 + detail * 3;
-    if (continent > 0.15) {
-        const mountainT = THREE.MathUtils.clamp((continent - 0.15) / 0.5, 0, 1);
-        h += mountainT * 18 + rugged * mountainT * 4;
+    let h = continent * 7 + detail * 2.2;
+    if (continent > 0.2) {
+        // Ramp pegunungan dilebarin (0.2->0.95, dulu cuma 0.15->0.65) & di-smoothstep biar
+        // transisi pantai->gunung nggak berasa kayak "tebing" tiba-tiba muncul dalam jarak
+        // pendek - sekarang naiknya lebih bertahap & natural.
+        const mountainT = THREE.MathUtils.clamp((continent - 0.2) / 0.75, 0, 1);
+        const smoothT = mountainT * mountainT * (3 - 2 * mountainT);
+        h += smoothT * 15 + rugged * smoothT * 2.5;
     }
-    if (continent < -0.25) {
-        h -= (Math.abs(continent) - 0.25) * 10;
+    if (continent < -0.3) {
+        h -= (Math.abs(continent) - 0.3) * 7;
     }
-    return h;
+    return applyFlatten(dir, h);
 }
 
 const BIOME_SAND = new THREE.Color(0xcbb679);
@@ -147,8 +193,12 @@ export function createPlanetMeshes(scene, segments = 100, colorFn = planetColorA
     planetMesh.name = 'planet';
     scene.add(planetMesh);
 
-    const waterGeo = new THREE.SphereGeometry(PLANET_RADIUS + WATER_LEVEL, 64, 48);
-    const waterMat = new THREE.MeshStandardMaterial({ color: 0x1e6091, transparent: true, opacity: 0.78, roughness: 0.15, metalness: 0.6, flatShading: true });
+    // metalness tinggi + flatShading dulu bikin air keliatan kayak kaca retak-retak berbintik
+    // hitam (facet metal tanpa environment map = item kalau nggak pas mantulin cahaya) - sekarang
+    // dibikin lebih "air biasa": halus (smooth shading, bola-nya emang mulus jadi nggak masalah)
+    // & metalness rendah biar warnanya rata, nggak belang-belang.
+    const waterGeo = new THREE.SphereGeometry(PLANET_RADIUS + WATER_LEVEL, 96, 64);
+    const waterMat = new THREE.MeshStandardMaterial({ color: 0x1e6da3, transparent: true, opacity: 0.85, roughness: 0.35, metalness: 0.08, flatShading: false });
     const waterMesh = new THREE.Mesh(waterGeo, waterMat);
     waterMesh.name = 'ocean';
     scene.add(waterMesh);

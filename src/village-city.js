@@ -5,7 +5,7 @@
 // bikin lokasinya tetap konsisten tiap game dibuka (noise-nya seeded/deterministic) tanpa perlu
 // nebak-nebak koordinat secara manual kayak sebelumnya.
 import * as THREE from 'three';
-import { getPlanetTerrainHeight, getContinentValue, placeOnPlanet, PLANET_RADIUS, WATER_LEVEL } from './planet-terrain.js';
+import { getPlanetTerrainHeight, placeOnPlanet, PLANET_RADIUS, WATER_LEVEL } from './planet-terrain.js';
 
 function fibonacciSphere(count) {
     const pts = [];
@@ -40,24 +40,45 @@ function findAnchor({ from, targetDeg, tolDeg, minH = 0.5, maxH = 4.5, maxPoleY 
 }
 
 // --- Cari anchor lokasi utama, urut (masing-masing bergantung ke yang sebelumnya) ---
-export const SPAWN = findAnchor({ targetDeg: 0, tolDeg: 180, minH: 0.5, maxH: 4.5 });
+// minH dinaikin (dulu 0.5/0.3 - cuma ~2 unit di atas permukaan laut) - di planet sekecil ini,
+// berdiri sedekat itu ke permukaan laut bikin cakrawala lautnya "nongol" deket & dominan
+// banget (radius planet cuma 260 unit, jadi cakrawala kelihatan dari mana-mana kalau posisi kita
+// nggak cukup tinggi di atas air). Naikin ke 4-6 unit di atas laut bikin desa/kota kerasa lebih
+// kayak beneran di daratan, bukan di gundukan pasir yang nyaris tenggelam.
+export const SPAWN = findAnchor({ targetDeg: 0, tolDeg: 180, minH: 4, maxH: 9 });
 export const VILLAGE = SPAWN;
-export const CITY = findAnchor({ from: VILLAGE.dir, targetDeg: 55, tolDeg: 20, minH: 0.3, maxH: 5 });
+export const CITY = findAnchor({ from: VILLAGE.dir, targetDeg: 55, tolDeg: 20, minH: 3, maxH: 9 });
 export const CAVE_WEST = findAnchor({ from: VILLAGE.dir, targetDeg: 15, tolDeg: 10, minH: -1, maxH: 6, filter: (d) => angDist(d, CITY.dir) > 0.2 });
 export const CAVE_EAST = findAnchor({ from: VILLAGE.dir, targetDeg: 15, tolDeg: 10, minH: -1, maxH: 6, filter: (d) => angDist(d, CITY.dir) > 0.2 && angDist(d, CAVE_WEST.dir) > 0.12 });
 
-let wfBest = null, wfBestDiff = Infinity;
-for (const dir of SAMPLE_POINTS) {
-    if (Math.abs(dir.y) > 0.7) continue;
-    const cont = getContinentValue(dir);
-    if (cont < 0.3) continue;
-    const d = angDist(VILLAGE.dir, dir);
-    if (d < 0.35) {
-        const diff = Math.abs(d - 0.15);
-        if (diff < wfBestDiff) { wfBestDiff = diff; wfBest = { dir: dir.clone(), h: getPlanetTerrainHeight(dir), cont }; }
+// Cari titik puncak air terjun: yang PALING TINGGI dalam jangkauan jalan kaki wajar dari desa.
+// Radius pencarian dilebarin bertahap kalau belum nemu bukit yang cukup tinggi - soalnya nggak
+// semua bibir pantai (tempat desa biasanya ketemu) punya gunung persis di sebelahnya, tergantung
+// noise-nya (makin mulus terrain-nya secara keseluruhan, makin jarang gunung "kebetulan" deket
+// pantai). Selalu balikin titik valid (nggak pernah null) walau bukitnya nggak terlalu tinggi.
+function findWaterfallTop() {
+    const searchRadii = [0.35, 0.55, 0.8, 1.1, 1.6];
+    for (const R of searchRadii) {
+        let best = null, bestH = -Infinity;
+        for (const dir of SAMPLE_POINTS) {
+            if (Math.abs(dir.y) > 0.72) continue;
+            const d = angDist(VILLAGE.dir, dir);
+            if (d < 0.06 || d > R) continue;
+            const h = getPlanetTerrainHeight(dir);
+            if (h > bestH) { bestH = h; best = dir; }
+        }
+        if (best && bestH > VILLAGE.h + 5) return { dir: best.clone(), h: bestH };
     }
+    let best = null, bestH = -Infinity;
+    for (const dir of SAMPLE_POINTS) {
+        const d = angDist(VILLAGE.dir, dir);
+        if (d < 0.06 || d > 1.6) continue;
+        const h = getPlanetTerrainHeight(dir);
+        if (h > bestH) { bestH = h; best = dir; }
+    }
+    return { dir: (best || VILLAGE.dir).clone(), h: bestH > -Infinity ? bestH : VILLAGE.h };
 }
-export const WATERFALL_TOP = wfBest || findAnchor({ from: VILLAGE.dir, targetDeg: 10, tolDeg: 10, minH: 8, maxH: 20 });
+export const WATERFALL_TOP = findWaterfallTop();
 
 // --- Great-circle slerp (buat jalan & interpolasi ketinggian air terjun) ---
 export function slerpDir(a, b, t) {
@@ -188,7 +209,7 @@ export function buildVillage(scene) {
 export function buildCity(scene) {
     const group = new THREE.Group();
     scene.add(group);
-    const buildingColors = [0x5c6570, 0x6b7280, 0x4a5058, 0x707880];
+    const buildingColors = [0x6f7986, 0x7d8794, 0x5e6672, 0x89919c]; // dicerahin dikit (dulu terlalu gelap, keliatan hitam pekat pas kena bayangan)
     let idx = 0;
     // ring mulai dari 1 (bukan 0) - dulu ring=0 nempatin gedung cuma ~4.7 unit dari CITY.dir,
     // padahal setengah-diagonal gedung bisa ~5.7 unit, jadi gedung nutupin titik pusat kota

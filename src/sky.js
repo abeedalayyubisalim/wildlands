@@ -15,6 +15,13 @@ export function createSky(scene) {
     const hemi = new THREE.HemisphereLight(0xbdd8ff, 0x3a3a2a, 0.55);
     scene.add(hemi);
 
+    // Fill light kecil biar sisi bangunan/rumah yang lagi membelakangi matahari nggak jadi
+    // hitam pekat total (dulu dikeluhin gedung2 keliatan jelek/gelap gulita dari sisi manapun
+    // yang nggak langsung kena matahari) - intensitasnya sengaja rendah, cuma buat "ngangkat"
+    // area gelap dikit, bukan ngilangin efek malam/bayangan sama sekali.
+    const fill = new THREE.AmbientLight(0xffffff, 0.22);
+    scene.add(fill);
+
     const skyColors = {
         night: new THREE.Color(0x0a0a2e), dawn: new THREE.Color(0xff8c42),
         day: new THREE.Color(0x87CEEB), dusk: new THREE.Color(0xff6b6b),

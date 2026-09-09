@@ -4,20 +4,8 @@
 // satu sama lain kalau dibuka di browser yang sama. ID pemain juga disimpan di localStorage
 // key yang beda ('wildlands_planet_player_id').
 //
-// Kalau tabelnya belum ada di project Supabase-mu, jalanin dulu SQL ini di SQL Editor Supabase:
-//
-//   create table if not exists planet_players (
-//     player_id text primary key,
-//     dir_x double precision, dir_y double precision, dir_z double precision,
-//     altitude double precision default 0,
-//     time_of_day double precision default 8,
-//     player_hp double precision default 100,
-//     drones_killed integer default 0,
-//     boss_defeated boolean default false,
-//     updated_at timestamptz default now()
-//   );
-//   alter table planet_players enable row level security;
-//   create policy "planet anon rw" on planet_players for all using (true) with check (true);
+// Kalau tabelnya belum ada di project Supabase-mu, jalanin dulu SQL di file
+// "supabase_setup.sql" (satu folder di atas src/) lewat SQL Editor Supabase-mu.
 //
 import { createClient } from '@supabase/supabase-js';
 

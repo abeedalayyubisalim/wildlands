@@ -22,19 +22,36 @@ function makeGlowTexture(innerColor, outerColor) {
 }
 
 export function buildCave(scene, dir) {
+    // Versi lama: dodecahedron abu-abu RADIUS 8 ngambang gitu aja di tanah - keliatan kayak
+    // "batu segede itu jatuh dari langit", bukan mulut gua alami (makanya ditegur pemain). Sekarang
+    // jauh lebih kecil, separuh KETANEM di tanah (biar nyambung ke permukaan, bukan ngambang),
+    // warnanya disamain ke warna biome batu/tanah sekitar, dan mulut guanya dikasih "bingkai"
+    // biar kebaca sebagai lubang gua, bukan cuma tabung item nempel.
     const cave = new THREE.Group();
-    const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(8, 1), new THREE.MeshStandardMaterial({ color: 0x555555, flatShading: true, roughness: 0.9 }));
-    rock.position.y = 4; rock.castShadow = true;
-    cave.add(rock);
-    const hole = new THREE.Mesh(new THREE.CylinderGeometry(3, 3, 8, 16, 1, true), new THREE.MeshBasicMaterial({ color: 0x111111, side: THREE.DoubleSide }));
-    hole.position.set(0, 4, 4); hole.rotation.x = Math.PI / 2;
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x6b6659, flatShading: true, roughness: 1 });
+    const mound = new THREE.Mesh(new THREE.IcosahedronGeometry(4.2, 1), rockMat);
+    mound.scale.set(1.35, 0.6, 1.2);
+    mound.position.y = 0.6; // separuh ketanem, bukan duduk penuh di atas tanah
+    mound.castShadow = true; mound.receiveShadow = true;
+    cave.add(mound);
+
+    const hole = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.9, 5, 12, 1, true), new THREE.MeshBasicMaterial({ color: 0x0b0b0c, side: THREE.DoubleSide }));
+    hole.position.set(0, 1.5, 2.6); hole.rotation.x = Math.PI / 2;
     cave.add(hole);
-    const light = new THREE.PointLight(0x4444ff, 0.5, 10);
-    light.position.set(0, 3, 2);
+
+    const archMat = new THREE.MeshStandardMaterial({ color: 0x57534a, flatShading: true, roughness: 1 });
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(1.85, 0.55, 6, 12, Math.PI), archMat);
+    arch.position.set(0, 1.5, 2.6);
+    arch.rotation.z = Math.PI;
+    cave.add(arch);
+
+    const light = new THREE.PointLight(0x6688ff, 0.35, 8);
+    light.position.set(0, 1.4, 1.6);
     cave.add(light);
+
     placeOnPlanet(cave, dir, 0);
     scene.add(cave);
-    return { group: cave, dir: dir.clone(), radius: 10 };
+    return { group: cave, dir: dir.clone(), radius: 6 };
 }
 
 export function buildCaves(scene) {
