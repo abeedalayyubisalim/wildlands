@@ -432,6 +432,7 @@
         let isPaused = false;
         let totalKills = 0;
         let totalAnimals = 0;
+        let storyDroneKills = 0;
         let bossDefeated = false;
         let storyLevel = 1;
         let storyFlags = {};
@@ -1373,7 +1374,7 @@
         // ============ VILLAGE & NPC (Lebih Detail) ============
         // NPC dimatiin sementara sesuai permintaan - tinggal balikin flag ini ke true
         // buat ngaktifin lagi Raka & Sari (fungsi createNPC-nya tetep utuh di bawah).
-        const NPCS_ENABLED = false;
+        const NPCS_ENABLED = true;
         const villageGroup = new THREE.Group();
         scene.add(villageGroup);
         const npcs = [];
@@ -1869,8 +1870,8 @@
         function checkBossSpawn() {
             if (storyLevel >= 18 && !bossSpawned && totalKills >= 3 && !bossDefeated) {
                 bossSpawned = true;
-                const bossPos = new THREE.Vector3(500, 0, 500);
-                bossPos.y = getTerrainHeight(500, 500);
+                const bossPos = new THREE.Vector3(storyPoints.mountain.x, 0, storyPoints.mountain.z);
+                bossPos.y = getTerrainHeight(storyPoints.mountain.x, storyPoints.mountain.z) + 18;
                 bossDrone = new BossDrone(bossPos);
             }
         }
@@ -2264,20 +2265,14 @@
                 this.burning = false;
                 this.burnTimer = 0;
                 showNotification("💥 DRONE HANCUR!");
-                if (storyLevel >= 17 && quest.active && quest.type === 'destroy_all' && !quest.completed && !bossDefeated) {
-                    quest.current++;
+                if (storyLevel >= 17 && storyLevel <= 18 && !bossDefeated) {
+                    storyDroneKills++;
                     totalKills++;
-                    updateQuestUI();
                     updateKillCounter();
-                    checkBossSpawn();
-                    if (quest.current >= quest.target) {
-                        quest.completed = true;
-                        showNotification("🏆 MISI SELESAI!", false);
-                        playerHealth = MAX_HEALTH; playerStamina = MAX_STAMINA;
-                        playerHunger = MAX_HUNGER; playerThirst = MAX_THIRST;
-                        updateHealthUI(); updateStaminaUI(); updateSurvivalUI();
-                        saveGame();
+                    if (storyLevel === 17 && storyDroneKills >= 3 && !quest.completed) {
+                        completeStory('Tiga drone penjaga hancur. Sensor markas mati dan jalan menuju menara radio terbuka.');
                     }
+                    if (storyLevel >= 18) checkBossSpawn();
                 }
             }
             updateBurn(delta) {
@@ -2310,6 +2305,13 @@
                 }
             }
             update(delta, playerPos, timeOfDay) {
+                if (storyLevel < 17) {
+                    if (this.group.visible) this.group.visible = false;
+                    this.hpBarEl.style.display = 'none';
+                    this.burnBarEl.style.display = 'none';
+                    return;
+                }
+                if (!this.group.visible && !this.destroyed) this.group.visible = true;
                 this.updateBurn(delta);
                 if (this.destroyed) {
                     this.respawnTimer -= delta;
@@ -2483,6 +2485,17 @@
             const m=STORY_MISSIONS[level-1]; if(!m)return; storyLevel=level;
             quest={active:true,title:`Level ${level}: ${m[0]}`,description:m[1],type:'story',target:1,current:completed?1:0,completed:completed};
             document.getElementById('story-level').innerText=level; updateQuestUI();
+            if (level === 6 && NPCS_ENABLED) {
+                showNotification('👤 Temukan Raka dan Sari di desa. Mereka mungkin tahu siapa yang menembak pesawatmu.');
+            }
+            if (level === 17) {
+                drones.forEach(d => { d.destroyed = false; d.hp = d.maxHp; d.group.visible = true; d.respawnTimer = 0; });
+                showNotification('🚨 PATROLI TERDETEKSI — drone musuh mulai aktif!', true);
+            }
+            if (level === 18) {
+                checkBossSpawn();
+                showNotification('📡 MENARA RADIO AKTIF — Drone Induk telah muncul!', true);
+            }
         }
         function showStory(title,text,objective){
             storyOverlayOpen=true; document.getElementById('story-title').innerText=title; document.getElementById('story-text').innerText=text; document.getElementById('story-objective').innerText='🎯 '+objective; document.getElementById('story-overlay').style.display='flex';
@@ -2519,7 +2532,6 @@
         }
         function updateStoryProgress(){
             if(storyLevel===2 && totalAnimals>=2 && !quest.completed) completeStory('Daging cukup untuk bertahan. Sekarang cari sumber air.');
-            if(storyLevel===17 && totalKills>=3 && !quest.completed) completeStory('Patroli udara mulai berkurang.');
             if(storyLevel===18 && bossDefeated && !quest.completed) completeStory('Ledakan itu terdengar sampai lembah.');
         }
 
@@ -2908,7 +2920,7 @@
                     mined_rocks: Array.from(minedRocks),
                     campfires: campfires, health: playerHealth, stamina: playerStamina,
                     hunger: playerHunger, thirst: playerThirst, quest: quest, total_kills: totalKills,
-                    total_animals: totalAnimals, boss_defeated: bossDefeated, story_level: storyLevel, story_flags: storyFlags
+                    total_animals: totalAnimals, boss_defeated: bossDefeated, story_level: storyLevel, story_flags: storyFlags, story_drone_kills: storyDroneKills
                 };
                 await supabase.from('players').upsert(saveData, { onConflict: 'player_id' });
             } catch(e) {}
@@ -2931,6 +2943,7 @@
                     if (data.total_animals) totalAnimals = data.total_animals;
                     if (data.boss_defeated) bossDefeated = data.boss_defeated;
                     if (data.story_level) storyLevel = Math.max(1, Math.min(20, data.story_level));
+                    if (data.story_drone_kills) storyDroneKills = data.story_drone_kills;
                     if (data.story_flags) storyFlags = data.story_flags;
                     setStoryMission(storyLevel);
                     if (data.chopped_trees && Array.isArray(data.chopped_trees)) {
